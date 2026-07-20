@@ -1,0 +1,5 @@
+{
+  "$schema": "https://xunit.net/schema/current/xunit.runner.schema.json",
+  "parallelizeTestCollections": false,
+  "_comment": "Test classes share the global SqliteConnection pool and delete their temp .db files in Dispose; parallel ClearAllPools calls race and leave a pooled handle open, failing the delete. Serial collections make cleanup deterministic."
+}

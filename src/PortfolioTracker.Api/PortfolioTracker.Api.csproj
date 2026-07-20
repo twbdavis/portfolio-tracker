@@ -1,0 +1,51 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <GenerateEmbeddedFilesManifest>true</GenerateEmbeddedFilesManifest>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <FrameworkReference Include="Microsoft.AspNetCore.App" />
+    <PackageReference Include="Microsoft.Extensions.FileProviders.Embedded" Version="8.0.10" />
+    <PackageReference Include="Microsoft.Win32.Registry" Version="5.0.0" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\PortfolioTracker.Core\PortfolioTracker.Core.csproj" />
+  </ItemGroup>
+
+  <!-- Release packaging: build the React app and mirror frontend/dist into
+       wwwroot. Mirroring (delete orphans + copy changes) instead of
+       RemoveDir+Copy keeps the folder valid at every instant, so a concurrent
+       build instance can never observe it half-populated. -->
+  <Target Name="BuildFrontend" Condition="'$(Configuration)' == 'Release' And '$(SkipFrontendBuild)' != 'true'">
+    <Exec Command="npm ci" WorkingDirectory="..\..\frontend" />
+    <Exec Command="npm run build" WorkingDirectory="..\..\frontend" />
+    <ItemGroup>
+      <_FrontendDist Include="..\..\frontend\dist\**" />
+      <_WwwrootOrphan Include="wwwroot\**"
+                      Exclude="@(_FrontendDist->'wwwroot\%(RecursiveDir)%(Filename)%(Extension)')" />
+    </ItemGroup>
+    <Delete Files="@(_WwwrootOrphan)" />
+    <Copy SourceFiles="@(_FrontendDist)"
+          DestinationFiles="@(_FrontendDist->'wwwroot\%(RecursiveDir)%(Filename)%(Extension)')"
+          SkipUnchangedFiles="true" />
+  </Target>
+
+  <!-- wwwroot is embedded here, not in a static ItemGroup: the list is
+       assembled at execution time, after BuildFrontend has refreshed the
+       folder, so an evaluation-time snapshot of old hashed bundle names can
+       never reach the compiler (CS1566).
+       Must also run before _CalculateEmbeddedFilesManifestInputs (a
+       PrepareResourceNames dependency that runs before AssignTargetPaths):
+       it snapshots EmbeddedResource to build the ManifestEmbeddedFileProvider
+       manifest, and if it runs first the manifest is silently omitted and the
+       published app crashes at startup. -->
+  <Target Name="EmbedWwwroot" BeforeTargets="_CalculateEmbeddedFilesManifestInputs;AssignTargetPaths" DependsOnTargets="BuildFrontend">
+    <ItemGroup>
+      <EmbeddedResource Include="wwwroot\**" />
+    </ItemGroup>
+  </Target>
+
+</Project>
