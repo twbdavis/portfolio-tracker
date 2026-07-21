@@ -100,6 +100,78 @@ public class MigrationTests : IDisposable
         seed.ExecuteNonQuery();
     }
 
+    /// EARLY v0: a build predating CashFlow/LotConsumption/WashSaleAdjustment
+    /// (the 2026-07-20 laptop schema). The migration must skip tables that
+    /// don't exist — CreateSchema creates them in v1 form right afterwards.
+    private void SeedEarlyV0Database()
+    {
+        using var conn = new SqliteConnection(new SqliteConnectionStringBuilder { DataSource = _dbPath }.ToString());
+        conn.Open();
+        var cmd = conn.CreateCommand();
+        cmd.CommandText = """
+            CREATE TABLE Position (
+                Id INTEGER PRIMARY KEY AUTOINCREMENT,
+                Ticker TEXT NOT NULL COLLATE NOCASE UNIQUE,
+                Cusip TEXT NULL, Name TEXT NULL,
+                TargetPrice TEXT NULL,
+                TargetDirection INTEGER NOT NULL DEFAULT 0,
+                AlertEnabled INTEGER NOT NULL DEFAULT 0,
+                AlertTriggeredAt TEXT NULL,
+                NeedsOpeningBalance INTEGER NOT NULL DEFAULT 0,
+                Notes TEXT NULL);
+            CREATE TABLE ImportBatch (
+                Id INTEGER PRIMARY KEY AUTOINCREMENT,
+                ImportedAt TEXT NOT NULL, FileName TEXT NOT NULL,
+                RowsImported INTEGER NOT NULL, RowsSkipped INTEGER NOT NULL,
+                RowsDeduped INTEGER NOT NULL);
+            CREATE TABLE Tx (
+                Id INTEGER PRIMARY KEY AUTOINCREMENT,
+                Ticker TEXT NOT NULL COLLATE NOCASE,
+                Cusip TEXT NULL, TradeDate TEXT NOT NULL, Type INTEGER NOT NULL,
+                Shares TEXT NOT NULL, Amount TEXT NOT NULL, Description TEXT NULL,
+                Source INTEGER NOT NULL,
+                ImportBatchId INTEGER NULL REFERENCES ImportBatch(Id),
+                DedupeKey TEXT NULL);
+            CREATE TABLE Lot (
+                Id INTEGER PRIMARY KEY AUTOINCREMENT,
+                PositionId INTEGER NOT NULL REFERENCES Position(Id),
+                Shares TEXT NOT NULL, TotalCost TEXT NOT NULL,
+                RemainingShares TEXT NOT NULL, RemainingCost TEXT NOT NULL,
+                TradeDate TEXT NOT NULL, Source INTEGER NOT NULL,
+                ImportBatchId INTEGER NULL, ParentLotId INTEGER NULL, SourceTxId INTEGER NULL);
+            CREATE TABLE SaleRecord (
+                Id INTEGER PRIMARY KEY AUTOINCREMENT,
+                PositionId INTEGER NOT NULL REFERENCES Position(Id),
+                TradeDate TEXT NOT NULL,
+                SharesSold TEXT NOT NULL, Proceeds TEXT NOT NULL,
+                CostBasisConsumed TEXT NOT NULL, RealizedGainLoss TEXT NOT NULL,
+                UnmatchedShares TEXT NOT NULL DEFAULT '0',
+                ImportBatchId INTEGER NULL);
+            INSERT INTO Position (Id, Ticker, TargetPrice) VALUES (1, 'MU', '195.5'), (2, 'VOO', NULL);
+            INSERT INTO Tx (Ticker, TradeDate, Type, Shares, Amount, Source)
+            VALUES ('MU', '2026-01-05', 0, '10', '1000', 1);
+            INSERT INTO Lot (PositionId, Shares, TotalCost, RemainingShares, RemainingCost, TradeDate, Source)
+            VALUES (1, '10', '1000', '10', '1000', '2026-01-05', 1);
+            """;
+        cmd.ExecuteNonQuery();
+    }
+
+    [Fact]
+    public void Early_v0_database_missing_tables_migrates_cleanly()
+    {
+        SeedEarlyV0Database();
+        var db = new Database(_dbPath);   // used to die: 'no such table: CashFlow'
+
+        var account = Assert.Single(new AccountRepository(db).GetAll());
+        var positions = new PositionRepository(db).GetAll();
+        Assert.Equal(2, positions.Count);
+        Assert.All(positions, p => Assert.Equal(account.Id, p.AccountId));
+        Assert.Single(new LotRepository(db).GetByPosition(1, openOnly: true));
+        Assert.Equal("MU", Assert.Single(new TickerTargetRepository(db).GetAll()).Ticker);
+        // the skipped tables exist in v1 form afterwards and are usable
+        Assert.Equal(0m, new CashFlowRepository(db).GetTotals(account.Id).Deposits);
+    }
+
     [Fact]
     public void V0_database_with_data_migrates_to_one_reviewable_placeholder_account()
     {

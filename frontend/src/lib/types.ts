@@ -239,6 +239,15 @@ export interface EarningsValue {
 export interface NewsValue {
   items: NewsItem[]
 }
+export interface PriceBar {
+  date: string // yyyy-MM-dd
+  close: number
+}
+/// All-time daily closes, oldest-first; may be stale warehouse bars (with the
+/// panel error set) when the live history provider is down.
+export interface HistoryValue {
+  bars: PriceBar[]
+}
 
 // ---- taxes (/api/tax/{year}) -----------------------------------------------
 

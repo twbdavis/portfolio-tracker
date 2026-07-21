@@ -252,6 +252,14 @@ public class Database
 
     private static void MigrateV0ToV1Body(SqliteConnection conn)
     {
+        // early-v0 databases predate some tables; migrate only what exists —
+        // CreateSchema creates the rest in v1 form immediately afterwards.
+        // Existence checks run before BeginTransaction: Microsoft.Data.Sqlite
+        // throws if a command doesn't carry the active transaction.
+        var existing = new[] { "Tx", "Lot", "SaleRecord", "CashFlow", "ImportBatch" }
+            .Where(t => TableExists(conn, t)).ToHashSet();
+        var hasWashSale = TableExists(conn, "WashSaleAdjustment");
+
         using var txn = conn.BeginTransaction();
 
         Exec(conn, """
@@ -266,10 +274,10 @@ public class Database
                 NeedsReview INTEGER NOT NULL DEFAULT 0)
             """, txn);
 
-        var hasData = (long)Exec(conn, """
-            SELECT (SELECT COUNT(*) FROM Position) + (SELECT COUNT(*) FROM Tx)
-                 + (SELECT COUNT(*) FROM CashFlow) + (SELECT COUNT(*) FROM ImportBatch)
-            """, txn)! > 0;
+        // Position always exists — it's the migration trigger
+        var hasData = new[] { "Position", "Tx", "CashFlow", "ImportBatch" }
+            .Where(t => t == "Position" || existing.Contains(t))
+            .Sum(t => (long)Exec(conn, $"SELECT COUNT(*) FROM {t}", txn)!) > 0;
         long accountId = 0;
         if (hasData)
         {
@@ -316,13 +324,15 @@ public class Database
             ALTER TABLE Position_v1 RENAME TO Position
             """, txn);
 
-        foreach (var table in new[] { "Tx", "Lot", "SaleRecord", "CashFlow", "ImportBatch" })
+        foreach (var table in new[] { "Tx", "Lot", "SaleRecord", "CashFlow", "ImportBatch" }
+                     .Where(existing.Contains))
             Exec(conn, $"""
                 ALTER TABLE {table} ADD COLUMN AccountId INTEGER NOT NULL DEFAULT 0;
                 UPDATE {table} SET AccountId = {accountId}
                 """, txn);
 
-        Exec(conn, "ALTER TABLE WashSaleAdjustment ADD COLUMN Kind INTEGER NOT NULL DEFAULT 0", txn);
+        if (hasWashSale)
+            Exec(conn, "ALTER TABLE WashSaleAdjustment ADD COLUMN Kind INTEGER NOT NULL DEFAULT 0", txn);
         txn.Commit();
     }
 

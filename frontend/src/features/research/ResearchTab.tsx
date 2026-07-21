@@ -10,6 +10,7 @@ import type {
   EarningsValue,
   FundamentalMetrics,
   FundamentalsValue,
+  HistoryValue,
   NewsValue,
   PanelResponse,
   RecommendationTrend,
@@ -30,6 +31,7 @@ import {
 } from '@/components/ui/command'
 import { Skeleton } from '@/components/ui/skeleton'
 import { WatchlistEntryDialog } from '@/features/research/WatchlistDialogs'
+import { PriceHistoryChart } from '@/features/research/PriceHistoryChart'
 import {
   SectorContextStrip,
   SignalBadges,
@@ -57,6 +59,7 @@ const fundamentalsQuery = (t: string) => panelQuery<FundamentalsValue>(t, 'funda
 const recommendationsQuery = (t: string) => panelQuery<RecommendationsValue>(t, 'recommendations', 10 * 60_000)
 const earningsQuery = (t: string) => panelQuery<EarningsValue>(t, 'earnings', 10 * 60_000)
 const newsQuery = (t: string) => panelQuery<NewsValue>(t, 'news', 10 * 60_000)
+const historyQuery = (t: string) => panelQuery<HistoryValue>(t, 'history', 10 * 60_000)
 
 /// $1.23T / $45.6B / $789M — HumanNumber.Money for market caps.
 function humanMoney(v: number): string {
@@ -83,6 +86,7 @@ export function ResearchTab({
   const recommendations = useQuery(recommendationsQuery(t))
   const earnings = useQuery(earningsQuery(t))
   const news = useQuery(newsQuery(t))
+  const history = useQuery(historyQuery(t))
 
   const watchlist = useQuery({
     queryKey: ['watchlist'],
@@ -123,6 +127,8 @@ export function ResearchTab({
             resp={snapshot.data}
             loading={snapshot.isLoading}
             metrics={fundamentals.data?.value?.metrics ?? null}
+            history={history.data}
+            historyLoading={history.isLoading}
           />
 
           <div className="flex flex-wrap items-center gap-2">
@@ -291,11 +297,15 @@ function SnapshotCard({
   resp,
   loading,
   metrics,
+  history,
+  historyLoading,
 }: {
   ticker: string
   resp: PanelResponse<SnapshotValue> | undefined
   loading: boolean
   metrics: FundamentalMetrics | null // 52-week range arrives with fundamentals
+  history: PanelResponse<HistoryValue> | undefined
+  historyLoading: boolean
 }) {
   const quote = resp?.value?.quote ?? null
   const profile = resp?.value?.profile ?? null
@@ -323,8 +333,8 @@ function SnapshotCard({
       loading={loading}
       status={resp?.error ?? (resp && profile == null ? 'profile not available' : '')}
     >
-      <div className="flex flex-wrap items-start justify-between gap-4">
-        <div className="min-w-64">
+      <div className="flex flex-wrap items-start gap-x-8 gap-y-4">
+        <div className="min-w-64 shrink-0">
           <h2 className="text-lg font-semibold">
             {profile?.name ? `${profile.name}  (${ticker})` : ticker}
           </h2>
@@ -339,10 +349,8 @@ function SnapshotCard({
               {profile.webUrl}
             </a>
           )}
-        </div>
-        <div className="min-w-80">
           {quote ? (
-            <>
+            <div className="pt-3">
               <div className="flex items-baseline gap-2">
                 <span className="text-2xl font-semibold tnum">{money(quote.current)}</span>
                 <span className={cn('text-sm font-medium tnum', gainClass(quote.dayChange))}>
@@ -361,10 +369,13 @@ function SnapshotCard({
                   {money(metrics?.high52)})
                 </p>
               )}
-            </>
+            </div>
           ) : (
-            <span className="text-sm text-muted-foreground">no quote</span>
+            <p className="pt-3 text-sm text-muted-foreground">no quote</p>
           )}
+        </div>
+        <div className="min-w-80 flex-1">
+          <PriceHistoryChart resp={history} loading={historyLoading} />
         </div>
       </div>
     </Panel>

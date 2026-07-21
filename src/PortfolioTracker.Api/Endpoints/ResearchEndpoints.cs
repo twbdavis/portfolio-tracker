@@ -1,3 +1,4 @@
+using System.Text.Json;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Routing;
@@ -51,6 +52,38 @@ public static class ResearchEndpoints
         MapPanel(api, "news", async (svc, ticker, ct) =>
             new { items = await svc.Research.GetNewsAsync(ticker, ct) });
 
+        // all-time daily closes for the snapshot price chart. Yahoo (keyless),
+        // so it skips the Finnhub rate gate and isn't a MapPanel; cached an
+        // hour — closes only move once per trading day. When Yahoo is down the
+        // warehouse's crawled closes (~2y for universe tickers) keep the chart
+        // alive, with the fetch error surfaced alongside the stale bars.
+        api.MapGet("/research/{ticker}/history", async (string ticker, CoreServices svc, CancellationToken ct) =>
+        {
+            ticker = ticker.Trim().ToUpperInvariant();
+            if (ticker.Length == 0) return Results.BadRequest(new { error = "ticker is required" });
+            var cached = svc.ResearchCache.Get(ticker, "history", TimeSpan.FromHours(1));
+            if (cached is not null)
+                return Results.Ok(new { value = JsonSerializer.Deserialize<HistoryValue>(cached), error = (string?)null });
+            using var _ = svc.Interactive.Begin();   // the crawler shares Yahoo; don't compete with it
+            try
+            {
+                var bars = await svc.History.GetDailyHistoryAsync(ticker, new DateOnly(1970, 1, 1), ct);
+                var value = new HistoryValue(bars);
+                svc.ResearchCache.Put(ticker, "history", JsonSerializer.Serialize(value), DateTimeOffset.Now);
+                return Results.Ok(new { value, error = (string?)null });
+            }
+            catch (PriceFetchException ex)
+            {
+                var fallback = svc.DailyCloses.GetForTicker(ticker)
+                    .Select(r => new DailyBar(r.Date, r.Close)).ToList();
+                return Results.Ok(new
+                {
+                    value = fallback.Count > 0 ? new HistoryValue(fallback) : null,
+                    error = (string?)ex.Message,
+                });
+            }
+        });
+
         // warehouse-only sector context — never a live API call, so it isn't
         // a MapPanel (no rate gate, no interactive preemption) and it renders
         // instantly even when Finnhub is down
@@ -69,6 +102,8 @@ public static class ResearchEndpoints
             return Results.Ok(new SectorContextResponse(null, 0, null, new()));
         });
     }
+
+    public record HistoryValue(List<DailyBar> Bars);
 
     public record SectorMetricContext(string Key, string Label, decimal? Value,
         decimal? SectorMedian, decimal? Percentile, bool IsPercent);

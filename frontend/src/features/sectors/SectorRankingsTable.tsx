@@ -8,7 +8,7 @@ import {
   type SortingState,
 } from '@tanstack/react-table'
 import { ArrowDown, ArrowUp } from 'lucide-react'
-import { useNavigate } from 'react-router-dom'
+import { useLocation, useNavigate } from 'react-router-dom'
 import { cn } from '@/lib/utils'
 import { percent, signedPercent } from '@/lib/format'
 import type { SectorTickerRow } from '@/lib/types'
@@ -19,6 +19,7 @@ import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip
 export function SectorRankingsTable({ rows }: { rows: SectorTickerRow[] }) {
   const [sorting, setSorting] = useState<SortingState>([])
   const navigate = useNavigate()
+  const location = useLocation()
 
   const columns = useMemo<ColumnDef<SectorTickerRow>[]>(
     () => [
@@ -85,7 +86,12 @@ export function SectorRankingsTable({ rows }: { rows: SectorTickerRow[] }) {
           {table.getRowModel().rows.map((row) => (
             <tr
               key={row.id}
-              onClick={() => navigate(`/research?ticker=${row.original.ticker}`)}
+              onClick={() =>
+                navigate(`/research?ticker=${row.original.ticker}`, {
+                  // the search string carries ?sector= so back restores the view
+                  state: { back: { path: `${location.pathname}${location.search}`, label: 'Sectors' } },
+                })
+              }
               className="cursor-pointer border-b border-border/50 transition-colors hover:bg-accent/50"
             >
               {row.getVisibleCells().map((cell) => {

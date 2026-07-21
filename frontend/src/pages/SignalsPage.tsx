@@ -186,7 +186,11 @@ export function SignalsPage() {
                 key={hit.id}
                 hit={hit}
                 onDismiss={() => dismiss.mutate(hit.id)}
-                onResearch={() => navigate(`/research?ticker=${hit.ticker}`)}
+                onResearch={() =>
+                  navigate(`/research?ticker=${hit.ticker}`, {
+                    state: { back: { path: '/signals', label: 'Signals' } },
+                  })
+                }
                 onWatchlist={() => addToWatchlist.mutate(hit)}
               />
             ))}

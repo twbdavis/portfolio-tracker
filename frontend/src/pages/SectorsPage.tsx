@@ -1,4 +1,5 @@
 import { useMemo, useState } from 'react'
+import { useSearchParams } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
 import { Boxes } from 'lucide-react'
 import { api } from '@/lib/api'
@@ -22,7 +23,11 @@ import { UniverseManagerDialog } from '@/features/sectors/UniverseManagerDialog'
 /// as-of timestamp — a stale sector shows a refresh affordance (the crawler
 /// widget), never a spinner waiting on a live API.
 export function SectorsPage() {
-  const [selected, setSelected] = useState<string | null>(null)
+  // selection lives in the URL so "Back to Sectors" from a researched ticker
+  // lands on the same sector; replace keeps heatmap clicks out of history
+  const [params, setParams] = useSearchParams()
+  const selected = params.get('sector')
+  const setSelected = (s: string) => setParams({ sector: s }, { replace: true })
   const [universesOpen, setUniversesOpen] = useState(false)
 
   const sectors = useQuery<SectorInfo[]>({
