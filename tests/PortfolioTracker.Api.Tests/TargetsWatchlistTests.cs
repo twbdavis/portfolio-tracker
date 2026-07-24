@@ -133,6 +133,34 @@ public class TargetsWatchlistTests : IClassFixture<ApiFixture>
     }
 
     [Fact]
+    public async Task Watchlist_reports_day_change_from_price_cache()
+    {
+        var post = await _fx.Client.PostAsJsonAsync("/api/watchlist", new
+        {
+            ticker = "NVDA", thesis = "", conviction = 3, targetBuyPrice = (decimal?)null, alertEnabled = false,
+        });
+        post.EnsureSuccessStatusCode();
+        var id = (await post.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("id").GetInt64();
+
+        _fx.Host.Core.PriceCache.Upsert(new Core.Models.PriceQuote(
+            "NVDA", 105m, DateTimeOffset.Now, PrevClose: 100m));
+        var item = (await _fx.Client.GetFromJsonAsync<JsonElement>("/api/watchlist"))
+            .EnumerateArray().Single(w => w.GetProperty("id").GetInt64() == id);
+        Assert.Equal(105m, item.GetProperty("currentPrice").GetDecimal());
+        Assert.Equal(5m, item.GetProperty("dayChange").GetDecimal());
+        Assert.Equal(5m, item.GetProperty("dayChangePct").GetDecimal());
+
+        // no prevClose -> day change is null rather than misleading
+        _fx.Host.Core.PriceCache.Upsert(new Core.Models.PriceQuote("NVDA", 105m, DateTimeOffset.Now));
+        item = (await _fx.Client.GetFromJsonAsync<JsonElement>("/api/watchlist"))
+            .EnumerateArray().Single(w => w.GetProperty("id").GetInt64() == id);
+        Assert.Equal(JsonValueKind.Null, item.GetProperty("dayChange").ValueKind);
+        Assert.Equal(JsonValueKind.Null, item.GetProperty("dayChangePct").ValueKind);
+
+        (await _fx.Client.DeleteAsync($"/api/watchlist/{id}")).EnsureSuccessStatusCode();
+    }
+
+    [Fact]
     public async Task Research_search_without_key_is_json_error_not_500()
     {
         var resp = await _fx.Client.GetAsync("/api/research/search?q=apple");

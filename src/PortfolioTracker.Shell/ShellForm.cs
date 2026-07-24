@@ -18,6 +18,7 @@ public class ShellForm : Form
     private bool _reallyExit;
     private bool _userResized;
     private bool _applyingAutoSize;
+    private bool _startHidden;
 
     public ShellForm(ApiHost host, string startUrl, EventWaitHandle showSignal, bool startMinimized)
     {
@@ -32,27 +33,26 @@ public class ShellForm : Form
         Width = (int)(work.Width * 0.9);
         Height = (int)(work.Height * 0.9);
 
-        if (startMinimized)
-        {
-            Opacity = 0;
-            WindowState = FormWindowState.Minimized;
-            ShowInTaskbar = false;
-            Shown += (_, _) =>
-            {
-                Hide();
-                WindowState = FormWindowState.Normal;
-                ShowInTaskbar = true;
-                Opacity = 1;
-            };
-        }
+        // Tray-only start must not touch Opacity/WindowState/ShowInTaskbar:
+        // those recreate the window handle, which kills an in-flight WebView2
+        // initialization (blank window forever). SetVisibleCore below keeps the
+        // form invisible instead; Load fires on first restore and boots WebView2.
+        _startHidden = startMinimized;
 
         Controls.Add(_webView);
         ResizeEnd += (_, _) => { if (!_applyingAutoSize) _userResized = true; };
         InitializeTray();
-        WatchShowSignal(showSignal);
         _host.Alerts.AlertFired += OnAlertFired;
         Load += async (_, _) => await InitializeWebViewAsync();
+
+        // the show-signal watcher BeginInvokes onto this form, which needs a
+        // handle; when starting hidden the form never shows, so force one now
+        if (_startHidden) CreateHandle();
+        WatchShowSignal(showSignal);
     }
+
+    protected override void SetVisibleCore(bool value)
+        => base.SetVisibleCore(value && !_startHidden);
 
     private async Task InitializeWebViewAsync()
     {
@@ -138,7 +138,9 @@ public class ShellForm : Form
             while (showSignal.WaitOne())
             {
                 if (IsDisposed) return;
-                try { BeginInvoke(RestoreFromTray); } catch (ObjectDisposedException) { return; }
+                try { BeginInvoke(RestoreFromTray); }
+                catch (ObjectDisposedException) { return; }
+                catch (InvalidOperationException) { /* handle not created yet: drop the signal */ }
             }
         }) { IsBackground = true };
         watcher.Start();
@@ -146,6 +148,7 @@ public class ShellForm : Form
 
     private void RestoreFromTray()
     {
+        _startHidden = false;
         Show();
         WindowState = FormWindowState.Normal;
         Activate();

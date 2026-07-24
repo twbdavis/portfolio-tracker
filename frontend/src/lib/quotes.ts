@@ -83,6 +83,11 @@ export function applyQuotesToWatchlist(items: WatchlistItem[], batch: QuotePush[
         item.targetBuyPrice != null && q.price > 0
           ? ((item.targetBuyPrice - q.price) / q.price) * 100
           : null,
+      dayChange: q.prevClose != null ? q.price - q.prevClose : item.dayChange,
+      dayChangePct:
+        q.prevClose != null && q.prevClose !== 0
+          ? ((q.price - q.prevClose) / q.prevClose) * 100
+          : item.dayChangePct,
     }
   })
   return touched ? next : items

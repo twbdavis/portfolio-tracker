@@ -145,6 +145,8 @@ export interface WatchlistItem {
   notes: string | null
   currentPrice: number | null
   distanceToTargetPct: number | null
+  dayChange: number | null
+  dayChangePct: number | null
 }
 
 export interface SymbolSearchResult {

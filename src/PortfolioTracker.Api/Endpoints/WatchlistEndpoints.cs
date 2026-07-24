@@ -9,7 +9,8 @@ public static class WatchlistEndpoints
 {
     public record WatchlistItemDto(long Id, string Ticker, string? Name, DateTimeOffset AddedAt,
         string? Thesis, int Conviction, decimal? TargetBuyPrice, bool AlertEnabled,
-        DateTimeOffset? AlertTriggeredAt, string? Notes, decimal? CurrentPrice, decimal? DistanceToTargetPct);
+        DateTimeOffset? AlertTriggeredAt, string? Notes, decimal? CurrentPrice, decimal? DistanceToTargetPct,
+        decimal? DayChange, decimal? DayChangePct);
 
     public record WatchlistCreate(string Ticker, string? Name, string? Thesis, int Conviction,
         decimal? TargetBuyPrice, bool AlertEnabled);
@@ -24,10 +25,7 @@ public static class WatchlistEndpoints
         {
             var quotes = svc.PriceCache.GetAll();
             return Results.Ok(svc.Watchlist.GetAll().Select(w =>
-            {
-                decimal? price = quotes.TryGetValue(w.Ticker, out var q) ? q.Price : null;
-                return ToDto(w, price);
-            }));
+                ToDto(w, quotes.TryGetValue(w.Ticker, out var q) ? q : null)));
         });
 
         api.MapPost("/watchlist", (WatchlistCreate req, CoreServices svc) =>
@@ -50,7 +48,7 @@ public static class WatchlistEndpoints
                 AlertEnabled = req.AlertEnabled && req.TargetBuyPrice is not null,
             };
             item.Id = svc.Watchlist.Insert(item);
-            return Results.Ok(ToDto(item, CurrentPrice(svc, ticker)));
+            return Results.Ok(ToDto(item, Quote(svc, ticker)));
         });
 
         api.MapPut("/watchlist/{id:long}", (long id, WatchlistUpdate req, CoreServices svc) =>
@@ -65,7 +63,7 @@ public static class WatchlistEndpoints
             item.TargetBuyPrice = req.TargetBuyPrice;
             item.AlertEnabled = req.AlertEnabled && req.TargetBuyPrice is not null;
             svc.Watchlist.Update(item);
-            return Results.Ok(ToDto(item, CurrentPrice(svc, item.Ticker)));
+            return Results.Ok(ToDto(item, Quote(svc, item.Ticker)));
         });
 
         api.MapDelete("/watchlist/{id:long}", (long id, CoreServices svc) =>
@@ -114,11 +112,18 @@ public static class WatchlistEndpoints
     private static WatchlistItem? GetById(CoreServices svc, long id) =>
         svc.Watchlist.GetAll().FirstOrDefault(w => w.Id == id);
 
-    private static decimal? CurrentPrice(CoreServices svc, string ticker) =>
-        svc.PriceCache.GetAll().TryGetValue(ticker, out var q) ? q.Price : null;
+    private static PriceQuote? Quote(CoreServices svc, string ticker) =>
+        svc.PriceCache.GetAll().TryGetValue(ticker, out var q) ? q : null;
 
-    private static WatchlistItemDto ToDto(WatchlistItem w, decimal? price) => new(
-        w.Id, w.Ticker, w.Name, w.AddedAt, w.Thesis, w.Conviction, w.TargetBuyPrice,
-        w.AlertEnabled, w.AlertTriggeredAt, w.Notes, price,
-        price is decimal p && p > 0m && w.TargetBuyPrice is decimal t ? (t - p) / p * 100m : null);
+    private static WatchlistItemDto ToDto(WatchlistItem w, PriceQuote? q)
+    {
+        decimal? price = q?.Price;
+        decimal? change = q is { PrevClose: decimal pc } ? q.Price - pc : null;
+        return new(
+            w.Id, w.Ticker, w.Name, w.AddedAt, w.Thesis, w.Conviction, w.TargetBuyPrice,
+            w.AlertEnabled, w.AlertTriggeredAt, w.Notes, price,
+            price is decimal p && p > 0m && w.TargetBuyPrice is decimal t ? (t - p) / p * 100m : null,
+            change,
+            change is decimal c && q?.PrevClose is decimal prev && prev != 0m ? c / prev * 100m : null);
+    }
 }

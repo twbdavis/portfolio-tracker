@@ -124,12 +124,27 @@ describe('applyQuotesToWatchlist', () => {
     notes: null,
     currentPrice: 120,
     distanceToTargetPct: -25,
+    dayChange: null,
+    dayChangePct: null,
   }
 
   it('patches price and distance', () => {
     const [w] = applyQuotesToWatchlist([item], [push('AMD', 100)])
     expect(w.currentPrice).toBe(100)
     expect(w.distanceToTargetPct).toBeCloseTo(-10)
+  })
+
+  it('patches day change from prevClose', () => {
+    const [w] = applyQuotesToWatchlist([item], [push('AMD', 105, 100)])
+    expect(w.dayChange).toBe(5)
+    expect(w.dayChangePct).toBeCloseTo(5)
+  })
+
+  it('keeps prior day change when the push lacks prevClose', () => {
+    const primed = { ...item, dayChange: 2, dayChangePct: 1.5 }
+    const [w] = applyQuotesToWatchlist([primed], [push('AMD', 100)])
+    expect(w.dayChange).toBe(2)
+    expect(w.dayChangePct).toBe(1.5)
   })
 
   it('returns the same array when nothing matches', () => {

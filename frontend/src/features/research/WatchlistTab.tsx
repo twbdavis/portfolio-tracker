@@ -4,7 +4,7 @@ import { BellRing, Pencil, Plus, ShoppingCart, Trash2 } from 'lucide-react'
 import { toast } from 'sonner'
 import { api } from '@/lib/api'
 import { cn } from '@/lib/utils'
-import { money, shortDate, signedPercent } from '@/lib/format'
+import { gainClass, money, shortDate, signedMoney, signedPercent } from '@/lib/format'
 import type { WatchlistItem } from '@/lib/types'
 import { Button } from '@/components/ui/button'
 import { Skeleton } from '@/components/ui/skeleton'
@@ -106,7 +106,14 @@ export function WatchlistTab({ onOpenTicker }: { onOpenTicker: (ticker: string) 
                         {w.ticker}
                       </button>
                     </td>
-                    <td className="px-3 py-1.5 text-right tnum">{money(w.currentPrice)}</td>
+                    <td className="px-3 py-1.5 text-right tnum">
+                      <div>{money(w.currentPrice)}</div>
+                      {w.dayChange != null && (
+                        <div className={cn('text-xs', gainClass(w.dayChange))}>
+                          {signedMoney(w.dayChange)} ({signedPercent(w.dayChangePct)})
+                        </div>
+                      )}
+                    </td>
                     <td className="px-3 py-1.5 text-right tnum">{money(w.targetBuyPrice)}</td>
                     <td className="px-3 py-1.5 text-right tnum">
                       {signedPercent(w.distanceToTargetPct)}
