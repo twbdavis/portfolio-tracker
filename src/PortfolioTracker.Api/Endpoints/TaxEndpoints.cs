@@ -24,6 +24,7 @@ public static class TaxEndpoints
     public record DividendDto(string Ticker, decimal Amount);
 
     public record TaxYearDto(int Year, List<int> AvailableYears, List<TaxEventDto> Events,
+        decimal YearRealized,                       // raw (pre-wash) realized, for economic after-tax
         decimal YearShortTerm, decimal YearLongTerm,
         decimal CarryInShortTerm, decimal CarryInLongTerm, bool CarryInIsManual,
         NettingDto Netting, decimal TotalDisallowed, decimal PermanentlyLost,
@@ -90,6 +91,7 @@ public static class TaxEndpoints
             e.View.Source.Proceeds, e.View.AdjustedBasis, e.View.AdjustedGainLoss,
             e.View.IsWash, e.View.DisallowedLoss, e.View.CrossAccountDisallowed, e.View.IraDisallowed,
             e.View.HasCrossAccountWash, e.View.HasIraWash)).ToList(),
+        d.Events.Sum(e => e.View.Source.GainLoss),
         d.YearShortTerm, d.YearLongTerm,
         d.CarryInShortTerm, d.CarryInLongTerm, d.CarryInIsManual,
         new NettingDto(d.Netting.NetShortTerm, d.Netting.NetLongTerm,

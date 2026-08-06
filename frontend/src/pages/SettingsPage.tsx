@@ -17,6 +17,7 @@ import {
 } from '@/components/ui/select'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { ConfirmDialog } from '@/components/ConfirmDialog'
+import type { AiUsage } from '@/lib/types'
 
 type FilingStatus = 'Single' | 'MarriedFilingJointly' | 'HeadOfHousehold'
 
@@ -28,6 +29,19 @@ interface Settings {
   filingStatus: FilingStatus
   otherIncome: number
   startWithWindows: boolean
+  autoAcceptDiscoveries: boolean
+  anthropicApiKey: string | null
+  anthropicModel: string
+  aiMonthlyTokenBudget: number
+  aiWeeklyBatchEnabled: boolean
+  aiWeeklyBatchCount: number
+  scoreboardDownWeighting: boolean
+  aiProvider: 'openwebui' | 'anthropic' | 'disabled'
+  openWebUiBaseUrl: string | null
+  openWebUiApiKey: string | null
+  openWebUiModel: string | null
+  openWebUiTimeoutSeconds: number
+  openWebUiDisableThinking: boolean
 }
 
 interface AccountSummary {
@@ -50,6 +64,10 @@ export function SettingsPage() {
     queryKey: ['settings-accounts'],
     queryFn: () => api.get<AccountSummary[]>('/api/settings/accounts'),
   })
+  const aiUsage = useQuery({
+    queryKey: ['ai-usage'],
+    queryFn: () => api.get<AiUsage>('/api/ai/usage'),
+  })
 
   const [form, setForm] = useState<Settings | null>(null)
   const [deleting, setDeleting] = useState<AccountSummary | null>(null)
@@ -63,6 +81,10 @@ export function SettingsPage() {
       queryClient.invalidateQueries({ queryKey: ['settings'] })
       queryClient.invalidateQueries({ queryKey: ['dashboard'] })
       queryClient.invalidateQueries({ queryKey: ['tax'] })
+      // provider/key changes must reach the brief dialog's enabled state
+      // immediately, not after its cache goes stale
+      queryClient.invalidateQueries({ queryKey: ['ai-usage'] })
+      queryClient.invalidateQueries({ queryKey: ['queue'] })
       setTheme(s.theme === 'light' ? 'light' : 'dark')
       toast.success('Settings saved')
     },
@@ -73,6 +95,32 @@ export function SettingsPage() {
     mutationFn: () => api.post<{ ok: boolean; error: string | null }>('/api/settings/test-connection'),
     onSuccess: (r) =>
       r.ok ? toast.success('Finnhub connection works') : toast.error(r.error ?? 'Connection failed'),
+    onError: (e) => toast.error(String(e)),
+  })
+
+  // tests the values currently in the form (saved or not), so "select
+  // provider -> test" works before hitting Save
+  const testAi = useMutation({
+    mutationFn: () =>
+      api.post<{ ok: boolean; error: string | null }>('/api/settings/test-ai', {
+        aiProvider: form!.aiProvider,
+        openWebUiBaseUrl: form!.openWebUiBaseUrl,
+        openWebUiApiKey: form!.openWebUiApiKey,
+        openWebUiModel: form!.openWebUiModel,
+        openWebUiDisableThinking: form!.openWebUiDisableThinking,
+        anthropicApiKey: form!.anthropicApiKey,
+        anthropicModel: form!.anthropicModel,
+      }),
+    onSuccess: (r) =>
+      r.ok
+        ? toast.success('AI provider responded')
+        : toast.error(r.error ?? 'AI connection failed'),
+    onError: (e) => toast.error(String(e)),
+  })
+
+  const resetPrompts = useMutation({
+    mutationFn: () => api.post<{ dir: string }>('/api/settings/prompts/reset'),
+    onSuccess: (r) => toast.success(`Prompt templates reset in ${r.dir}`),
     onError: (e) => toast.error(String(e)),
   })
 
@@ -157,6 +205,219 @@ export function SettingsPage() {
                 <SelectItem value="light">Light</SelectItem>
               </SelectContent>
             </Select>
+          </div>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-base">Research queue &amp; discovery</CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-3">
+          <div className="flex items-center gap-2">
+            <Checkbox
+              id="auto-accept"
+              checked={form.autoAcceptDiscoveries}
+              onCheckedChange={(c) => set('autoAcceptDiscoveries', c === true)}
+            />
+            <Label htmlFor="auto-accept" className="font-normal">
+              Auto-accept peer discoveries into a &quot;Discovered&quot; universe
+            </Label>
+          </div>
+          <p className="pl-6 text-xs text-muted-foreground">
+            Off: new peers wait in the Discoveries panel for review. On: they are crawled and
+            ranked automatically.
+          </p>
+          <div className="flex items-center gap-2">
+            <Checkbox
+              id="down-weight"
+              checked={form.scoreboardDownWeighting}
+              onCheckedChange={(c) => set('scoreboardDownWeighting', c === true)}
+            />
+            <Label htmlFor="down-weight" className="font-normal">
+              Down-weight queue evidence from underperforming signal kinds
+            </Label>
+          </div>
+          <p className="pl-6 text-xs text-muted-foreground">
+            Uses the signal scoreboard: kinds whose 60-day sector beat-rate stays under 45% across
+            at least 20 matured fires earn half credit in the queue. The affected rows show the
+            applied weight and the reason.
+          </p>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-base">AI research briefs</CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <p className="text-xs text-muted-foreground">
+            Briefs are generated section-by-section strictly from your local data, every number
+            grounding-checked against the exact slice the model saw, and badged as AI-generated —
+            never as advice. The feature stays off until a provider is configured.
+          </p>
+          <div className="grid grid-cols-[12rem_1fr] items-center gap-3">
+            <Label>Provider</Label>
+            <div className="flex items-center gap-2">
+              <Select
+                value={form.aiProvider}
+                onValueChange={(v) => set('aiProvider', v as Settings['aiProvider'])}
+              >
+                <SelectTrigger className="w-72">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="disabled">Disabled</SelectItem>
+                  <SelectItem value="openwebui">Local AI server (OpenWebUI)</SelectItem>
+                  <SelectItem value="anthropic">Anthropic API</SelectItem>
+                </SelectContent>
+              </Select>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => testAi.mutate()}
+                disabled={testAi.isPending || form.aiProvider === 'disabled'}
+              >
+                {testAi.isPending ? 'Testing…' : 'Test connection'}
+              </Button>
+            </div>
+          </div>
+
+          {form.aiProvider === 'openwebui' && (
+            <div className="grid grid-cols-[12rem_1fr] items-center gap-3">
+              <Label htmlFor="ow-url">Server base URL</Label>
+              <Input
+                id="ow-url"
+                placeholder="https://…"
+                value={form.openWebUiBaseUrl ?? ''}
+                onChange={(e) => set('openWebUiBaseUrl', e.target.value || null)}
+              />
+              <Label htmlFor="ow-key">API key</Label>
+              <Input
+                id="ow-key"
+                type="password"
+                value={form.openWebUiApiKey ?? ''}
+                onChange={(e) => set('openWebUiApiKey', e.target.value || null)}
+              />
+              <Label htmlFor="ow-model">Model</Label>
+              <Input
+                id="ow-model"
+                className="w-72"
+                placeholder="model id on the server"
+                value={form.openWebUiModel ?? ''}
+                onChange={(e) => set('openWebUiModel', e.target.value || null)}
+              />
+              <Label htmlFor="ow-timeout">Per-call timeout (sec)</Label>
+              <Input
+                id="ow-timeout"
+                type="number"
+                min={10}
+                max={3600}
+                step={30}
+                className="w-32"
+                value={form.openWebUiTimeoutSeconds}
+                onChange={(e) => set('openWebUiTimeoutSeconds', Number(e.target.value))}
+              />
+              <span />
+              <div className="flex items-center gap-2">
+                <Checkbox
+                  id="ow-no-think"
+                  checked={form.openWebUiDisableThinking}
+                  onCheckedChange={(c) => set('openWebUiDisableThinking', c === true)}
+                />
+                <Label htmlFor="ow-no-think" className="font-normal">
+                  Skip the model&apos;s &quot;thinking&quot; phase (much faster briefs)
+                </Label>
+              </div>
+              <span />
+              <p className="text-xs text-muted-foreground">
+                Thinking models (qwen3) deliberate for minutes before each ~10-line section; the
+                grounding checker verifies every number regardless, so briefs skip it by default.
+                Un-check to let the model think — then raise the per-call timeout, since sections
+                can take several minutes each.
+              </p>
+              <span />
+              <p className="text-xs text-muted-foreground">
+                Stored locally as OPENWEBUI_BASE_URL / OPENWEBUI_API_KEY / OPENWEBUI_MODEL in the
+                git-ignored app settings. Requests run one at a time (shared hardware); each brief
+                is five sequential section calls. No token budget. Briefs need network reach to
+                the server (VPN).
+              </p>
+            </div>
+          )}
+
+          {form.aiProvider === 'anthropic' && (
+            <div className="grid grid-cols-[12rem_1fr] items-center gap-3">
+              <Label htmlFor="anthropic-key">Anthropic API key</Label>
+              <Input
+                id="anthropic-key"
+                type="password"
+                value={form.anthropicApiKey ?? ''}
+                onChange={(e) => set('anthropicApiKey', e.target.value || null)}
+              />
+              <Label>Model</Label>
+              <Select value={form.anthropicModel} onValueChange={(v) => set('anthropicModel', v)}>
+                <SelectTrigger className="w-72">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="claude-sonnet-4-6">claude-sonnet-4-6 (default)</SelectItem>
+                  <SelectItem value="claude-opus-4-8">claude-opus-4-8</SelectItem>
+                  <SelectItem value="claude-haiku-4-5-20251001">claude-haiku-4-5</SelectItem>
+                </SelectContent>
+              </Select>
+              <Label htmlFor="ai-budget">Monthly token budget</Label>
+              <div className="flex items-center gap-3">
+                <Input
+                  id="ai-budget"
+                  type="number"
+                  min={0}
+                  step={50000}
+                  className="w-40"
+                  value={form.aiMonthlyTokenBudget}
+                  onChange={(e) => set('aiMonthlyTokenBudget', Number(e.target.value))}
+                />
+                {aiUsage.data && (
+                  <span className="text-xs text-muted-foreground tnum">
+                    {aiUsage.data.tokensUsed.toLocaleString()} used in {aiUsage.data.month}
+                    {aiUsage.data.budget > 0 &&
+                      ` (${Math.min(100, (aiUsage.data.tokensUsed / aiUsage.data.budget) * 100).toFixed(0)}%)`}
+                  </span>
+                )}
+              </div>
+            </div>
+          )}
+
+          {form.aiProvider !== 'disabled' && (
+            <div className="flex items-center gap-2">
+              <Checkbox
+                id="weekly-batch"
+                checked={form.aiWeeklyBatchEnabled}
+                onCheckedChange={(c) => set('aiWeeklyBatchEnabled', c === true)}
+              />
+              <Label htmlFor="weekly-batch" className="font-normal">
+                Weekly batch: brief the top
+              </Label>
+              <Input
+                type="number"
+                min={1}
+                max={20}
+                className="w-16"
+                value={form.aiWeeklyBatchCount}
+                onChange={(e) => set('aiWeeklyBatchCount', Number(e.target.value))}
+              />
+              <span className="text-sm">queue candidates automatically</span>
+            </div>
+          )}
+
+          <div className="flex items-center gap-3">
+            <Button variant="outline" size="sm" onClick={() => resetPrompts.mutate()}>
+              Reset prompt templates to defaults
+            </Button>
+            <span className="text-xs text-muted-foreground">
+              Section prompts are editable files under the app data folder (prompts\brief) and
+              hot-reload on the next generation.
+            </span>
           </div>
         </CardContent>
       </Card>

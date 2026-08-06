@@ -43,15 +43,32 @@ export function TotalsStrip({
         <Tooltip>
           <TooltipTrigger asChild>
             <button className="flex items-baseline gap-1.5" onClick={() => navigate('/taxes')}>
-              <span className="text-xs text-muted-foreground">YTD Realized (after tax)</span>
+              <span className="text-xs text-muted-foreground">After-tax realized</span>
               <span className={cn('font-semibold tnum', gainClass(summary.ytdTaxRealized))}>
                 {signedMoney(summary.ytdTaxRealized)}
               </span>
             </button>
           </TooltipTrigger>
           <TooltipContent>
-            This year's wash-adjusted realized gain/loss minus estimated federal tax (matches
-            Realized After Tax on the Taxes page) — click for the tax dashboard
+            <div className="grid grid-cols-[auto_auto] gap-x-4 gap-y-0.5">
+              <LadderRow label="Realized this year" value={summary.ytdRealized} />
+              <LadderRow label="− Est. federal tax" value={-summary.ytdEstimatedTax} />
+              <LadderRow label="= Kept after tax" value={summary.ytdTaxRealized} rule />
+            </div>
+            {summary.ytdWashAdjustment !== 0 && (
+              <div className="mt-1.5 max-w-56 text-muted-foreground">
+                Tax is figured on {money(summary.ytdRealized + summary.ytdWashAdjustment)} taxable —
+                the wash rule adds back {signedMoney(summary.ytdWashAdjustment)} of disallowed loss
+                (not money, a lost deduction).
+              </div>
+            )}
+            <div className="mt-1.5 max-w-56 text-muted-foreground">
+              Taxable-account sales this year,{' '}
+              {accountId == null
+                ? 'all accounts (matches Realized After Tax on the Taxes page)'
+                : 'this account only'}{' '}
+              — click for the tax dashboard
+            </div>
           </TooltipContent>
         </Tooltip>
         <Metric
@@ -101,6 +118,18 @@ export function TotalsStrip({
         isCustom={summary.dayStartIsCustom}
       />
     </div>
+  )
+}
+
+/// One line of the after-tax breakdown ladder; `rule` marks a subtotal line.
+function LadderRow({ label, value, rule }: { label: string; value: number; rule?: boolean }) {
+  return (
+    <>
+      <span className={cn(rule && 'border-t border-border/50 pt-0.5')}>{label}</span>
+      <span className={cn('text-right tnum', rule && 'border-t border-border/50 pt-0.5 font-semibold')}>
+        {signedMoney(value)}
+      </span>
+    </>
   )
 }
 

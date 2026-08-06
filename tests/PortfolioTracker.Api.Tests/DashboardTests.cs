@@ -86,15 +86,56 @@ public class DashboardTests : IClassFixture<ApiFixture>
         var dashboard = await _fx.Client.GetFromJsonAsync<JsonElement>("/api/dashboard/cumulative");
         var ytd = dashboard.GetProperty("summary").GetProperty("ytdTaxRealized").GetDecimal();
 
+        // after-tax is economic money kept: raw realized − estimated tax
         var tax = await _fx.Client.GetFromJsonAsync<JsonElement>($"/api/tax/{DateTime.Now.Year}");
-        var expected = tax.GetProperty("yearShortTerm").GetDecimal()
-            + tax.GetProperty("yearLongTerm").GetDecimal()
+        var expected = tax.GetProperty("yearRealized").GetDecimal()
             - tax.GetProperty("estimate").GetProperty("attributable").GetDecimal();
 
         Assert.Equal(expected, ytd);
         // the estimate deducts something, so the tile is below gross realized
         var gross = dashboard.GetProperty("summary").GetProperty("realized").GetDecimal();
         Assert.True(ytd < gross, $"after-tax {ytd} should be below gross {gross}");
+
+        // the tooltip ladder ties out: economic − est. tax = after-tax
+        var summary = dashboard.GetProperty("summary");
+        var economic = summary.GetProperty("ytdRealized").GetDecimal();
+        var estTax = summary.GetProperty("ytdEstimatedTax").GetDecimal();
+        Assert.Equal(ytd, economic - estTax);
+        Assert.True(estTax > 0m, $"gain above the deduction should be taxed, got {estTax}");
+    }
+
+    [Fact]
+    public async Task Ytd_tax_realized_is_scoped_to_the_account_dashboard()
+    {
+        var core = _fx.Host.Core;
+        var withSale = new Core.Models.Account
+        {
+            AccountNumber = "...3333", DisplayName = "Ytd Scoped A", CreatedAt = DateTimeOffset.UtcNow,
+        };
+        var noSales = new Core.Models.Account
+        {
+            AccountNumber = "...4444", DisplayName = "Ytd Scoped B", CreatedAt = DateTimeOffset.UtcNow,
+        };
+        core.Accounts.Insert(withSale);
+        core.Accounts.Insert(noSales);
+
+        // a realized gain this year in ONE account only: buy 5 @ 100, sell 5 @ 140
+        core.ManualEntry.AddLot(withSale.Id, "YTDS", 5m, 500m, new DateOnly(DateTime.Now.Year, 1, 5), false);
+        core.Transactions.Insert(new Core.Models.Transaction
+        {
+            AccountId = withSale.Id, Ticker = "YTDS", TradeDate = new DateOnly(DateTime.Now.Year, 2, 5),
+            Type = Core.Models.TxType.Sell, Shares = 5m, Amount = 700m,
+            Source = Core.Models.LotSource.Manual,
+        });
+        core.Tax.RebuildAll();
+
+        var a = await _fx.Client.GetFromJsonAsync<JsonElement>($"/api/dashboard/account/{withSale.Id}");
+        var b = await _fx.Client.GetFromJsonAsync<JsonElement>($"/api/dashboard/account/{noSales.Id}");
+        var ytdA = a.GetProperty("summary").GetProperty("ytdTaxRealized").GetDecimal();
+        var ytdB = b.GetProperty("summary").GetProperty("ytdTaxRealized").GetDecimal();
+
+        Assert.True(ytdA > 0m, $"account with the sale should show its own YTD, got {ytdA}");
+        Assert.Equal(0m, ytdB);
     }
 
     [Fact]

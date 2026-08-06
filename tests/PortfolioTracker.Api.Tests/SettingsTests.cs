@@ -23,6 +23,19 @@ public class SettingsTests : IClassFixture<ApiFixture>
             filingStatus = "MarriedFilingJointly",
             otherIncome = 85000m,
             startWithWindows = false,
+            autoAcceptDiscoveries = true,
+            anthropicApiKey = "sk-ant-test",
+            anthropicModel = "claude-sonnet-4-6",
+            aiMonthlyTokenBudget = 250_000,
+            aiWeeklyBatchEnabled = true,
+            aiWeeklyBatchCount = 3,
+            scoreboardDownWeighting = true,
+            aiProvider = "openwebui",
+            openWebUiBaseUrl = "https://ai.unit.test/",
+            openWebUiApiKey = "unit-test-bearer",
+            openWebUiModel = "unit-test-model",
+            openWebUiTimeoutSeconds = 420,
+            openWebUiDisableThinking = false,
         });
         put.EnsureSuccessStatusCode();
 
@@ -33,6 +46,36 @@ public class SettingsTests : IClassFixture<ApiFixture>
         Assert.Equal("light", updated.GetProperty("theme").GetString());
         Assert.Equal("MarriedFilingJointly", updated.GetProperty("filingStatus").GetString());
         Assert.Equal(85000m, updated.GetProperty("otherIncome").GetDecimal());
+        Assert.True(updated.GetProperty("autoAcceptDiscoveries").GetBoolean());
+        Assert.Equal("sk-ant-test", updated.GetProperty("anthropicApiKey").GetString());
+        Assert.Equal(250_000, updated.GetProperty("aiMonthlyTokenBudget").GetInt32());
+        Assert.True(updated.GetProperty("aiWeeklyBatchEnabled").GetBoolean());
+        Assert.Equal(3, updated.GetProperty("aiWeeklyBatchCount").GetInt32());
+        Assert.True(updated.GetProperty("scoreboardDownWeighting").GetBoolean());
+        Assert.Equal("openwebui", updated.GetProperty("aiProvider").GetString());
+        // trailing slash normalized off so the provider can append its path
+        Assert.Equal("https://ai.unit.test", updated.GetProperty("openWebUiBaseUrl").GetString());
+        Assert.Equal("unit-test-bearer", updated.GetProperty("openWebUiApiKey").GetString());
+        Assert.Equal("unit-test-model", updated.GetProperty("openWebUiModel").GetString());
+        Assert.Equal(420, updated.GetProperty("openWebUiTimeoutSeconds").GetInt32());
+        Assert.False(updated.GetProperty("openWebUiDisableThinking").GetBoolean());
+    }
+
+    [Fact]
+    public async Task Settings_from_an_older_client_keep_ai_defaults()
+    {
+        // a PUT without any of the AI fields must not 400 or zero the defaults
+        var put = await _fx.Client.PutAsJsonAsync("/api/settings", new
+        {
+            finnhubApiKey = (string?)null, refreshIntervalSeconds = 60, showClosedPositions = false,
+            theme = "dark", filingStatus = "Single", otherIncome = 0m, startWithWindows = false,
+        });
+        put.EnsureSuccessStatusCode();
+
+        var updated = await _fx.Client.GetFromJsonAsync<JsonElement>("/api/settings");
+        Assert.Equal(500_000, updated.GetProperty("aiMonthlyTokenBudget").GetInt32());
+        Assert.Equal(5, updated.GetProperty("aiWeeklyBatchCount").GetInt32());
+        Assert.Equal("claude-sonnet-4-6", updated.GetProperty("anthropicModel").GetString());
     }
 
     [Fact]

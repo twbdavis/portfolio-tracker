@@ -15,4 +15,7 @@ public interface IResearchDataProvider
     Task<List<EarningsQuarter>> GetEarningsAsync(string ticker, CancellationToken ct);
     Task<DateOnly?> GetNextEarningsDateAsync(string ticker, CancellationToken ct);
     Task<List<NewsItem>> GetCompanyNewsAsync(string ticker, DateOnly from, DateOnly to, CancellationToken ct);
+    /// Peer tickers for one symbol (the symbol itself excluded). Empty when
+    /// the provider has no peer data for it.
+    Task<List<string>> GetPeersAsync(string ticker, CancellationToken ct);
 }

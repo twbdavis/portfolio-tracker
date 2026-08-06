@@ -9,7 +9,9 @@ import { shortDate, timeOfDay } from '@/lib/format'
 import type { SignalHitDto } from '@/lib/types'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
+import { ScoreboardTab } from '@/features/signals/ScoreboardTab'
 import {
   Select,
   SelectContent,
@@ -29,10 +31,31 @@ const KIND_LABELS: Record<string, string> = {
   BreadthThrust: 'Breadth thrust (sector)',
 }
 
+/// Signals home: the live feed of rule hits plus the outcome scoreboard.
+export function SignalsPage() {
+  return (
+    <Tabs defaultValue="feed">
+      <div className="flex items-center gap-3 border-b px-4 pt-3 pb-2">
+        <h1 className="text-lg font-semibold">Signals</h1>
+        <TabsList>
+          <TabsTrigger value="feed">Feed</TabsTrigger>
+          <TabsTrigger value="scoreboard">Scoreboard</TabsTrigger>
+        </TabsList>
+      </div>
+      <TabsContent value="feed">
+        <SignalsFeed />
+      </TabsContent>
+      <TabsContent value="scoreboard">
+        <ScoreboardTab />
+      </TabsContent>
+    </Tabs>
+  )
+}
+
 /// The opportunity signals feed: rule hits grouped by kind, each with its
 /// full "why this fired" arithmetic. Signals never notify by default — this
 /// feed is their home.
-export function SignalsPage() {
+function SignalsFeed() {
   const navigate = useNavigate()
   const queryClient = useQueryClient()
   const [sectorFilter, setSectorFilter] = useState<string>('all')
@@ -108,8 +131,7 @@ export function SignalsPage() {
 
   return (
     <div className="flex flex-col gap-4 p-4">
-      <div className="flex flex-wrap items-center justify-between gap-2">
-        <h1 className="text-lg font-semibold">Signals</h1>
+      <div className="flex flex-wrap items-center justify-end gap-2">
         <div className="flex flex-wrap items-center gap-2">
           <Select value={kindFilter} onValueChange={setKindFilter}>
             <SelectTrigger className="w-56">

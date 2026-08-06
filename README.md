@@ -243,6 +243,138 @@ coverage counts and as-of timestamps (stale data gets a highlight and a
 refresh affordance, never a spinner), and the crawler widget shows fresh/stale
 ticker counts, the last completed crawl, and budget use.
 
+## Research queue, peer discovery, scoreboard, and AI briefs
+
+> **This tool prioritizes research; it does not recommend investments.** Every
+> feature below surfaces and orders things worth looking at — the decision is
+> always yours, and nothing in the app produces buy/sell/hold language.
+
+**Why there is no composite score.** The **Queue** page ranks crawled tickers
+by *evidence confluence*: six independent dimensions, each judged pass / fail
+/ neutral / n-a on its own transparent rule, and the rank is simply the
+weighted count of passes divided by the weight of the dimensions that had
+data. A single blended number would hide which evidence drove it and invite
+false precision; a pass-count with the full breakdown one click away on every
+row stays auditable. The dimensions: active undismissed signals (each kind
+counts once), sector health quadrant (breadth ≥ 50% × median 20d return ≥ 0
+maps to HealthyRally / Recovering / Topping / Breakdown; the first two pass,
+Topping is neutral, Breakdown fails), relative value (P/E-P/S-P/B cheapness
+composite in the sector's cheapest tercile), quality (growth/margin/ROE
+z-mean in the top tercile — also the tie-breaker), catalyst proximity
+(earnings within 14 days and 3+ of the last 4 quarters beat), and portfolio
+fit (correlation to your portfolio below 0.4). Dimensions without data show
+as **n/a and drop out of that ticker's denominator** — missing fundamentals
+(ETFs) must never read as a failing grade. Dismissing a row snoozes it for 30
+days. The queue reads only the local warehouse; it never calls the network.
+
+**Tuning `queue.json`.** Weights and thresholds live in
+`%APPDATA%\PortfolioTracker\queue.json` (created with defaults on first use,
+re-read on every queue load — edit and refresh, no restart). Defaults: every
+dimension weighs 1.0 except portfolio fit at 1.5; correlation threshold 0.4;
+sector-overlap flag at 25% of portfolio value; tercile cutoff 66.7; snooze 30
+days. Weights shape the ordering but never hide the breakdown.
+
+**Portfolio fit** correlates each candidate's daily returns against a
+composite of your current holdings (value-weighted, from warehoused closes)
+over the trailing 90 sessions, requiring 60 overlapping observations — fewer
+is reported as "not enough data", never as a low-confidence number. The
+composite deliberately uses *current* weights across the whole window: it
+answers "how would my portfolio as it stands today have moved with this
+candidate", not a historical reconstruction. The queue header shows your
+sector weights so the fit column has visible context, and each row carries a
+plain-language line ("Low correlation (0.21) to your portfolio; you have no
+Materials exposure"). Recomputed nightly after the crawl, or on demand.
+
+**Peer discovery** expands one hop from your held, watchlisted, and
+signal-flagged tickers via Finnhub `stock/peers` (7-day cache per seed,
+drawing from the same call budget as the rest of the crawler). Peers not in
+any universe land in the **Discoveries** panel on the Research page, grouped
+by which ticker suggested them: accept adds to a universe (default a
+dedicated "Discovered" universe) and queues a full crawl; ignore is permanent
+— an ignored ticker never resurfaces. Auto-accept is off by default
+(Settings).
+
+**Signal scoreboard** (Signals page → Scoreboard) tracks what happened after
+each fire: the ticker's close and every sector member's close are snapshotted
+at fire time (membership frozen as of that date, so later universe edits
+can't rewrite the benchmark), and 30/60/90-day forward returns fill in as
+they mature — both the raw ticker return and the excess over the sector's
+median return. Per kind you see fires, matured observations, median excess,
+% beating the sector, best/worst examples, and the dismiss rate (a proxy for
+perceived noise). **Interpretation caveats, on purpose:** below 10 matured
+observations the page says "insufficient data" instead of a percentage;
+horizons overlap so consecutive fires aren't independent samples; and the
+population is shaped by your own universe choices (survivorship of what you
+chose to crawl), so a beat-rate is evidence about the rule *in your universe*,
+not the market. The scoreboard is informational by default. An opt-in setting
+down-weights queue evidence from kinds whose 60-day beat-rate stays under 45%
+across ≥ 20 matured fires — when active, affected queue rows show the applied
+weight and the reason.
+
+**AI research briefs** (per queue row, or an optional weekly batch of the top
+5) are produced by the **BriefAgent pipeline** — sectioned generation built
+for small local models, though the same pipeline runs against the Anthropic
+API when selected. The provider is chosen by `AI_VISION_PROVIDER` in the
+git-ignored appsettings (`openwebui`, `anthropic`, or `disabled` — the
+default until configured); the local provider reads `OPENWEBUI_BASE_URL`,
+`OPENWEBUI_API_KEY`, and `OPENWEBUI_MODEL` (key **names** are contract; the
+values are credentials to an internal server and belong only in the local
+config — never in the repo, samples, or this README). All of it is editable
+in Settings, with the key masked and a "Test connection" ping that surfaces
+HTTP/SSL/auth errors readably. Briefs need network reach to the local AI
+server (VPN); an unreachable server fails the brief button with a clear
+message and never blocks the queue or research pages. Requests run strictly
+sequentially (shared company hardware), with a 60-second per-call timeout,
+`<think>` reasoning blocks stripped before any text is used, and no token
+budget on the local provider (usage is logged when the API reports it; the
+monthly ceiling and meter still apply to Anthropic).
+
+**Pipeline architecture.** Instead of one big call, each brief is five
+sequential section calls — What the company does, Why it surfaced, The 3
+numbers that matter most, Bear case / key risks, Questions to answer before
+investing — and each section receives only its *slice* of the whitelisted
+input snapshot (overview: profile; why-surfaced: the evidence breakdown;
+key-numbers: fundamentals + sector medians; bear-case: fundamentals + failed
+signal conditions + sector quadrant; questions: everything). Smaller context
+per call means better instruction adherence on a 27B-class model. Every
+section output then passes a **programmatic grounding check**: all numeric
+tokens are extracted (handling %, $, B/M/T suffixes, commas, negatives;
+dates excluded) and each must match a number in that section's slice within
+2-significant-figure rounding and unit reformatting (0.62 vs 62%, $120B vs a
+market cap in millions), plus a word-boundary-aware lint for verdict
+vocabulary (buy/sell/hold, target price, under/overvalued, "I recommend" —
+while "holdings", "resell", "household", and analyst-rating terms like "buy
+ratio" stay legal). A failing section gets exactly ONE repair call listing
+its specific violations; if it fails again the section is replaced with a
+rendered notice and the brief is flagged **NeedsReview** — unverified numbers
+are never stored silently. The checker's guarantee is deliberately narrow: it
+verifies the numbers exist in the supplied data, not that the reasoning about
+them is sound. Each brief stores per-stage transcripts (prompt, raw response,
+cleaned text, check results) in a **generation trace** viewable from the
+brief, alongside the exact input snapshot. Pipelines abort (and flag
+NeedsReview) after 8 model calls or 8 minutes; a re-request with unchanged
+data returns the stored brief (idempotent per input-snapshot hash) unless
+Regenerate is explicit, and an interrupted brief resumes from its already-
+verified sections.
+
+**Editing the prompts.** The system prompt, one template per section, and the
+repair prompt live as plain files in `%APPDATA%\PortfolioTracker\prompts\
+brief\` — seeded from embedded defaults on first use, re-read on every
+generation (edit and regenerate, no restart), and restorable via "Reset to
+defaults" in Settings. Each section template carries a short task spec, an
+explicit format contract, and one worked example; on a small model the
+example carries most of the instruction-following weight, so edit those with
+care. Numbers appearing in a template are automatically whitelisted by the
+grounding checker so a format contract like "exactly 3 bullets" can't cause
+false failures. The grounding contract itself is unchanged from before: the
+model sees ONLY the whitelisted snapshot (profile, queue evidence breakdown,
+fundamentals vs sector medians, signal why-panels, portfolio-fit line, last
+10 headlines — title/date/source, no URLs), `BriefPayloadTests` fails the
+build if any non-whitelisted field ever reaches a payload, every brief is
+badged "AI-generated from your local data — not advice", and "Add to
+watchlist" prefills the thesis from "Why it surfaced", tagged AI-drafted
+until you edit it.
+
 ## Taxes
 
 The **Taxes** toolbar button opens a per-year dashboard that estimates the

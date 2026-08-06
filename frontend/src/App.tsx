@@ -1,8 +1,19 @@
 import { Navigate, NavLink, Route, Routes, useLocation } from 'react-router-dom'
-import { FlaskConical, Landmark, LayoutGrid, Moon, RefreshCw, Settings, Sun, Upload, Zap } from 'lucide-react'
+import {
+  FlaskConical,
+  Landmark,
+  LayoutGrid,
+  ListChecks,
+  Moon,
+  RefreshCw,
+  Settings,
+  Sun,
+  Upload,
+  Zap,
+} from 'lucide-react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { api } from '@/lib/api'
 import { cn } from '@/lib/utils'
 import { useTheme } from '@/lib/theme'
@@ -12,6 +23,7 @@ import { Button } from '@/components/ui/button'
 import { HeightBridge } from '@/components/HeightBridge'
 import { DashboardPage } from '@/pages/DashboardPage'
 import { ResearchPage } from '@/pages/ResearchPage'
+import { QueuePage } from '@/pages/QueuePage'
 import { TaxesPage } from '@/pages/TaxesPage'
 import { SectorsPage } from '@/pages/SectorsPage'
 import { SignalsPage } from '@/pages/SignalsPage'
@@ -19,12 +31,48 @@ import { SettingsPage } from '@/pages/SettingsPage'
 import { ImportWizard } from '@/features/import/ImportWizard'
 import { MigrationReviewDialog } from '@/features/accounts/MigrationReviewDialog'
 
+/// Scroll offsets per URL (path + search), surviving route changes so any
+/// "Back to …" lands exactly where the user left, not at the top. Module
+/// scope: the map outlives App re-renders but resets with the page itself.
+const scrollMemory = new Map<string, number>()
+
 export default function App() {
   const { data: accounts } = useAccounts()
   const { theme, setTheme } = useTheme()
   const location = useLocation()
   const queryClient = useQueryClient()
   const [importOpen, setImportOpen] = useState(false)
+  const mainRef = useRef<HTMLElement>(null)
+
+  // <main> is the app's single scroll container. On every URL change, restore
+  // that URL's saved offset — retrying across frames because the page's data
+  // (usually already in the React Query cache) may take a beat to render tall
+  // enough to scroll. Unvisited URLs restore to 0, which keeps the normal
+  // "new page starts at the top" behavior.
+  useEffect(() => {
+    const el = mainRef.current
+    if (!el) return
+    const key = location.pathname + location.search
+    const saved = scrollMemory.get(key) ?? 0
+    let cancelled = false
+    let tries = 0
+    const restore = () => {
+      if (cancelled) return
+      if (el.scrollHeight - el.clientHeight >= saved || tries >= 60) {
+        el.scrollTop = saved
+        return
+      }
+      tries += 1
+      requestAnimationFrame(restore)
+    }
+    restore()
+    const onScroll = () => scrollMemory.set(key, el.scrollTop)
+    el.addEventListener('scroll', onScroll, { passive: true })
+    return () => {
+      cancelled = true
+      el.removeEventListener('scroll', onScroll)
+    }
+  }, [location.pathname, location.search])
 
   // the server owns the persisted theme; apply it once on load
   const settingsQuery = useQuery({
@@ -37,7 +85,10 @@ export default function App() {
   }, [settingsQuery.data])
 
   const refreshPrices = useMutation({
-    mutationFn: () => api.post<{ refreshed: boolean; error: string | null; unresolved: string[] }>('/api/quotes/refresh'),
+    mutationFn: () =>
+      api.post<{ refreshed: boolean; error: string | null; unresolved: string[] }>(
+        '/api/quotes/refresh',
+      ),
     onSuccess: (r) => {
       queryClient.invalidateQueries({ queryKey: ['dashboard'] })
       if (r.error) toast.error(r.error)
@@ -77,6 +128,9 @@ export default function App() {
             <div className="mx-3 h-5 w-px self-center bg-border" />
             <NavLink to="/research" className={tabClass}>
               <FlaskConical className="size-3.5" /> Research
+            </NavLink>
+            <NavLink to="/queue" className={tabClass}>
+              <ListChecks className="size-3.5" /> Queue
             </NavLink>
             <NavLink to="/sectors" className={tabClass}>
               <LayoutGrid className="size-3.5" /> Sectors
@@ -125,11 +179,12 @@ export default function App() {
         </div>
       </header>
 
-      <main className="flex min-h-0 flex-1 flex-col overflow-y-auto">
+      <main ref={mainRef} className="flex min-h-0 flex-1 flex-col overflow-y-auto">
         <Routes>
           <Route path="/" element={<DashboardPage accountId={null} />} />
           <Route path="/account/:id" element={<DashboardPage />} />
           <Route path="/research" element={<ResearchPage />} />
+          <Route path="/queue" element={<QueuePage />} />
           <Route path="/sectors" element={<SectorsPage />} />
           <Route path="/signals" element={<SignalsPage />} />
           <Route path="/taxes" element={<TaxesPage />} />

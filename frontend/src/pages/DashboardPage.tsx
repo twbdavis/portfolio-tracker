@@ -13,6 +13,7 @@ import { TotalsStrip } from '@/features/dashboard/TotalsStrip'
 import { PositionSheet } from '@/features/dashboard/PositionSheet'
 import { AddLotDialog } from '@/features/dashboard/LotDialogs'
 import { timeOfDay } from '@/lib/format'
+import { cn } from '@/lib/utils'
 
 export function DashboardPage({ accountId: accountIdProp }: { accountId?: number | null }) {
   const params = useParams()
@@ -75,9 +76,25 @@ export function DashboardPage({ accountId: accountIdProp }: { accountId?: number
           <Label htmlFor="show-closed" className="text-xs text-muted-foreground">
             Show closed
           </Label>
-          <span className="ml-4 text-xs text-muted-foreground tnum">
+          <span
+            className={cn(
+              'ml-4 text-xs tnum',
+              summary?.quotesStale ? 'font-medium text-warn' : 'text-muted-foreground'
+            )}
+            title={
+              summary?.quotesStale && summary.pricesAsOf
+                ? `The quote feed is answering requests but still serving prices observed at ` +
+                  `${timeOfDay(summary.quotesObservedAt!)} — last checked ${timeOfDay(summary.pricesAsOf)}. ` +
+                  `Values will catch up when the feed recovers.`
+                : undefined
+            }
+          >
             {summary?.pricesAsOf
-              ? `prices as of ${timeOfDay(summary.pricesAsOf)}`
+              ? summary.quotesStale && summary.quotesObservedAt
+                ? `⚠ quote feed lagging — prices stuck at ${timeOfDay(summary.quotesObservedAt)}`
+                : `prices as of ${timeOfDay(summary.quotesObservedAt ?? summary.pricesAsOf)}${
+                    summary.quotesViaFallback ? ' · via Yahoo (Finnhub feed stale)' : ''
+                  }`
               : 'no prices yet'}
             {summary && summary.unpricedCount > 0 && `  |  ${summary.unpricedCount} unpriced`}
           </span>

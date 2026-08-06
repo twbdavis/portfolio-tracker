@@ -1,6 +1,6 @@
 namespace PortfolioTracker.Core.Sectors;
 
-public enum CrawlKind { Profile = 0, Metrics = 1, Recommendations = 2, Quote = 3, History = 4 }
+public enum CrawlKind { Profile = 0, Metrics = 1, Recommendations = 2, Quote = 3, History = 4, Peers = 5 }
 
 public record CrawlWorkItem(string Ticker, CrawlKind Kind);
 
@@ -15,6 +15,9 @@ public static class CrawlPlanner
     public static readonly TimeSpan RecommendationsTtl = TimeSpan.FromHours(24);
     public static readonly TimeSpan QuoteTtl = TimeSpan.FromHours(24);
     public static readonly TimeSpan HistoryTtl = TimeSpan.FromHours(24);
+    /// Peer lists barely move; a week matches the profile cadence and keeps
+    /// the expansion pass cheap.
+    public static readonly TimeSpan PeersTtl = TimeSpan.FromDays(7);
 
     /// How far the one-time history backfill reaches: enough for SMA200 plus a
     /// year of headroom.
@@ -46,7 +49,8 @@ public static class CrawlPlanner
         IReadOnlySet<string> userClassifiedTickers,
         IReadOnlyDictionary<string, DateOnly> latestCloseDates,
         DateOnly lastCompletedTradingDay,
-        DateTimeOffset now)
+        DateTimeOffset now,
+        IReadOnlyCollection<string>? peerSeedTickers = null)
     {
         var items = new List<CrawlWorkItem>();
         foreach (var ticker in universeTickers.Distinct(StringComparer.OrdinalIgnoreCase)
@@ -77,6 +81,17 @@ public static class CrawlPlanner
                           || latest < lastCompletedTradingDay;
             if (neverFetched || (Expired(CrawlKind.History, HistoryTtl) && lagging))
                 items.Add(new CrawlWorkItem(ticker, CrawlKind.History));
+        }
+
+        // PeerExpansion: seeds are held/watchlist/active-signal tickers — a set
+        // independent of universe membership, expanded one hop only (peers of
+        // seeds, never peers of peers) so the discovery pool stays bounded.
+        foreach (var seed in (peerSeedTickers ?? Array.Empty<string>())
+                     .Distinct(StringComparer.OrdinalIgnoreCase)
+                     .OrderBy(t => t, StringComparer.OrdinalIgnoreCase))
+        {
+            if (!stamps.TryGetValue((seed, CrawlKind.Peers), out var at) || now - at >= PeersTtl)
+                items.Add(new CrawlWorkItem(seed, CrawlKind.Peers));
         }
         return items;
     }

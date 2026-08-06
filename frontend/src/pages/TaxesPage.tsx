@@ -130,7 +130,10 @@ export function TaxesPage() {
 }
 
 function SummaryCards({ d }: { d: TaxYearData }) {
-  const afterTax = d.yearShortTerm + d.yearLongTerm - d.estimate.attributable
+  // economic money kept: raw realized − estimated tax (the tax itself is
+  // figured on the wash-adjusted amount; the add-back is a lost deduction,
+  // not money, so it never lands in this headline)
+  const afterTax = d.yearRealized - d.estimate.attributable
   const cards: { caption: string; value: string; cls: string; show?: boolean }[] = [
     {
       caption: 'Net Short-Term',

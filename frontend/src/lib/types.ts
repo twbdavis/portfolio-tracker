@@ -56,8 +56,14 @@ export interface DashboardSummary {
   dividends: number
   realized: number
   ytdTaxRealized: number
+  ytdRealized: number
+  ytdWashAdjustment: number
+  ytdEstimatedTax: number
   accountTotal: number
   pricesAsOf: string | null
+  quotesObservedAt: string | null
+  quotesStale: boolean
+  quotesViaFallback: boolean
 }
 
 export interface Dashboard {
@@ -301,6 +307,7 @@ export interface TaxYearData {
   year: number
   availableYears: number[]
   events: TaxEvent[]
+  yearRealized: number
   yearShortTerm: number
   yearLongTerm: number
   carryInShortTerm: number
@@ -479,4 +486,150 @@ export interface SectorContextResponse {
   coverageCount: number
   asOf: string | null
   metrics: SectorMetricContext[]
+}
+
+// ---- research queue / discoveries / scoreboard / AI briefs -------------------
+
+export type EvidenceStatus = 'Pass' | 'Fail' | 'Neutral' | 'NotAvailable'
+
+export interface QueueEvidence {
+  dimension: string
+  label: string
+  status: EvidenceStatus
+  observed: string
+  threshold: string
+  asOf: string | null
+  weight: number
+  appliedWeight: number
+  note: string | null
+}
+
+export interface QueueRow {
+  ticker: string
+  sector: string | null
+  /// weightedPasses / applicableWeight — a normalized confluence ratio, shown
+  /// only alongside its full evidence breakdown.
+  score: number
+  weightedPasses: number
+  applicableWeight: number
+  fundamentalsRank: number | null
+  isHeld: boolean
+  onWatchlist: boolean
+  fitLine: string
+  latestBriefId: number | null
+  evidence: QueueEvidence[]
+}
+
+export interface SectorWeight {
+  sector: string
+  weightPct: number
+}
+
+export interface QueueResponse {
+  rows: QueueRow[]
+  portfolioSectorWeights: SectorWeight[]
+  holdingsCount: number
+  snoozedCount: number
+  jobsLastRanAt: string | null
+  downWeightingActive: boolean
+}
+
+export interface Discovery {
+  ticker: string
+  sourceTicker: string
+  discoveredAt: string
+}
+
+export interface ScoreboardExample {
+  ticker: string
+  fireDate: string
+  excess: number
+}
+
+export interface ScoreboardHorizon {
+  days: number
+  matured: number
+  medianExcess: number | null
+  beatRatePct: number | null
+  best: ScoreboardExample | null
+  worst: ScoreboardExample | null
+  sufficient: boolean
+}
+
+export interface ScoreboardRow {
+  signalKind: string
+  fires: number
+  dismissed: number
+  dismissRatePct: number | null
+  horizons: ScoreboardHorizon[]
+  downWeighted: boolean
+  downWeightReason: string | null
+}
+
+export interface ScoreboardResponse {
+  rows: ScoreboardRow[]
+  downWeightingEnabled: boolean
+  lastJobsRunAt: string | null
+}
+
+export interface ResearchBrief {
+  id: number
+  ticker: string
+  createdAt: string
+  model: string
+  briefMarkdown: string
+  tokensUsed: number
+  /// A section failed grounding checks (or the run aborted); its text was
+  /// withheld and the generation trace holds the evidence.
+  needsReview: boolean
+  /// The exact payload the pipeline sliced per section; present only on
+  /// GET /api/briefs/{id}.
+  inputSnapshotJson: string | null
+}
+
+export type AiProvider = 'openwebui' | 'anthropic' | 'disabled'
+
+export interface AiUsage {
+  month: string
+  tokensUsed: number
+  budget: number
+  enabled: boolean
+  provider: AiProvider
+  /// The monthly ceiling is an Anthropic-cost control; the local server has
+  /// no per-token cost, so usage is logged but never enforced there.
+  budgetEnforced: boolean
+}
+
+/// One row of the Briefs history tab — bodies load per brief on open.
+export interface BriefSummary {
+  id: number
+  ticker: string
+  createdAt: string
+  model: string
+  tokensUsed: number
+  needsReview: boolean
+}
+
+/// Polled from GET /api/briefs/status while the BriefAgent pipeline runs.
+export interface BriefRunStatus {
+  active: boolean
+  ticker: string | null
+  stage: string | null
+  sectionIndex: number
+  totalSections: number
+  startedAt: string | null
+  lastError: string | null
+  lastBriefId: number | null
+}
+
+export interface BriefTraceEntry {
+  id: number
+  section: string
+  stage: string
+  userPrompt: string
+  rawResponse: string
+  cleanedText: string
+  violationsJson: string
+  passed: boolean
+  createdAt: string
 }

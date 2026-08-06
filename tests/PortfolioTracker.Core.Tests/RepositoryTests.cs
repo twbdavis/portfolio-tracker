@@ -142,4 +142,16 @@ public class RepositoryTests : IDisposable
         cache.Upsert(new PriceQuote("NVDA", 195.00m, DateTimeOffset.UtcNow, PrevClose: 196.93m));
         Assert.Equal(196.93m, cache.GetAll()["NVDA"].PrevClose);
     }
+
+    [Fact]
+    public void PriceCache_observed_at_round_trips_and_null_is_fine()
+    {
+        var cache = new PriceCacheRepository(_db);
+        var observed = new DateTimeOffset(2026, 7, 29, 13, 13, 45, TimeSpan.FromHours(-5));
+        cache.Upsert(new PriceQuote("NVDA", 193.16m, DateTimeOffset.UtcNow, ObservedAt: observed));
+        cache.Upsert(new PriceQuote("VOO", 678.20m, DateTimeOffset.UtcNow));   // pre-field rows stay null
+        var all = cache.GetAll();
+        Assert.Equal(observed, all["NVDA"].ObservedAt);
+        Assert.Null(all["VOO"].ObservedAt);
+    }
 }

@@ -51,6 +51,9 @@ public class ApiHost : IAsyncDisposable
         builder.Services.AddSingleton<UniverseCrawler>();
         builder.Services.AddHostedService(sp => sp.GetRequiredService<UniverseCrawler>());
         builder.Services.AddSingleton<SignalService>();
+        builder.Services.AddSingleton<QueueService>();
+        builder.Services.AddSingleton<BriefService>();
+        builder.Services.AddSingleton<ResearchJobsService>();
         builder.Services.ConfigureHttpJsonOptions(o =>
             o.SerializerOptions.Converters.Add(new System.Text.Json.Serialization.JsonStringEnumConverter()));
         builder.Services.AddSignalR().AddJsonProtocol(o =>

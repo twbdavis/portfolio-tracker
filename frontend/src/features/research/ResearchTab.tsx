@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useMemo, useState } from 'react'
 import { useQueries, useQuery } from '@tanstack/react-query'
 import { Bar, BarChart, ResponsiveContainer, Tooltip as ChartTooltip, XAxis, YAxis } from 'recharts'
 import { X } from 'lucide-react'
@@ -16,20 +16,13 @@ import type {
   RecommendationTrend,
   RecommendationsValue,
   SnapshotValue,
-  SymbolSearchResponse,
   WatchlistItem,
 } from '@/lib/types'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
-import {
-  Command,
-  CommandEmpty,
-  CommandInput,
-  CommandItem,
-  CommandList,
-} from '@/components/ui/command'
 import { Skeleton } from '@/components/ui/skeleton'
+import { SearchBox } from '@/features/research/SearchBox'
 import { WatchlistEntryDialog } from '@/features/research/WatchlistDialogs'
 import { PriceHistoryChart } from '@/features/research/PriceHistoryChart'
 import {
@@ -55,8 +48,10 @@ function panelQuery<T>(ticker: string, panel: string, staleTime: number) {
 }
 
 const snapshotQuery = (t: string) => panelQuery<SnapshotValue>(t, 'snapshot', 60_000)
-const fundamentalsQuery = (t: string) => panelQuery<FundamentalsValue>(t, 'fundamentals', 10 * 60_000)
-const recommendationsQuery = (t: string) => panelQuery<RecommendationsValue>(t, 'recommendations', 10 * 60_000)
+const fundamentalsQuery = (t: string) =>
+  panelQuery<FundamentalsValue>(t, 'fundamentals', 10 * 60_000)
+const recommendationsQuery = (t: string) =>
+  panelQuery<RecommendationsValue>(t, 'recommendations', 10 * 60_000)
 const earningsQuery = (t: string) => panelQuery<EarningsValue>(t, 'earnings', 10 * 60_000)
 const newsQuery = (t: string) => panelQuery<NewsValue>(t, 'news', 10 * 60_000)
 const historyQuery = (t: string) => panelQuery<HistoryValue>(t, 'history', 10 * 60_000)
@@ -164,7 +159,10 @@ export function ResearchTab({
       )}
 
       {compare.length > 0 && (
-        <CompareSection tickers={compare} onRemove={(c) => setCompare(compare.filter((x) => x !== c))} />
+        <CompareSection
+          tickers={compare}
+          onRemove={(c) => setCompare(compare.filter((x) => x !== c))}
+        />
       )}
 
       <WatchlistEntryDialog
@@ -175,66 +173,6 @@ export function ResearchTab({
         name={snapshot.data?.value?.profile?.name ?? null}
       />
     </div>
-  )
-}
-
-// ---------- search ----------
-
-function SearchBox({ onPick }: { onPick: (ticker: string) => void }) {
-  const [text, setText] = useState('')
-  const [debounced, setDebounced] = useState('')
-
-  useEffect(() => {
-    const t = setTimeout(() => setDebounced(text.trim()), 300)
-    return () => clearTimeout(t)
-  }, [text])
-
-  const search = useQuery({
-    queryKey: ['research-search', debounced],
-    queryFn: ({ signal }) =>
-      api.get<SymbolSearchResponse>(
-        `/api/research/search?q=${encodeURIComponent(debounced)}`,
-        signal,
-      ),
-    enabled: debounced.length > 0,
-    staleTime: 5 * 60_000, // backspacing to a previous query re-hits the cache instantly
-    placeholderData: (prev) => prev, // keep the old list visible while the new one loads
-  })
-
-  const pick = (symbol: string) => {
-    setText('')
-    setDebounced('')
-    onPick(symbol)
-  }
-
-  return (
-    <Command shouldFilter={false} className="max-w-xl rounded-md border">
-      <CommandInput
-        placeholder="Ticker or company name"
-        value={text}
-        onValueChange={setText}
-      />
-      {debounced.length > 0 && (
-        <CommandList>
-          {search.data?.error && (
-            <div className="px-3 py-2 text-sm text-warn">{search.data.error}</div>
-          )}
-          {search.isFetching && !search.data && (
-            <div className="px-3 py-2 text-sm text-muted-foreground">Searching…</div>
-          )}
-          {search.data && !search.data.error && (
-            <CommandEmpty>No matches.</CommandEmpty>
-          )}
-          {search.data?.results.slice(0, 20).map((r) => (
-            <CommandItem key={r.symbol} value={r.symbol} onSelect={() => pick(r.symbol)}>
-              <span className="font-semibold">{r.symbol}</span>
-              <span className="truncate text-muted-foreground">{r.description}</span>
-              <span className="ml-auto text-xs text-muted-foreground">{r.type}</span>
-            </CommandItem>
-          ))}
-        </CommandList>
-      )}
-    </Command>
   )
 }
 
@@ -453,13 +391,14 @@ function FundamentalsPanel({
 }
 
 // strong buy → strong sell, green → red (the WinForms TrendBars segments)
-const TREND_SEGMENTS: { key: keyof RecommendationTrend & string; label: string; color: string }[] = [
-  { key: 'strongBuy', label: 'Strong buy', color: '#1e7f4f' },
-  { key: 'buy', label: 'Buy', color: '#7cb342' },
-  { key: 'hold', label: 'Hold', color: '#f0c63c' },
-  { key: 'sell', label: 'Sell', color: '#e07b39' },
-  { key: 'strongSell', label: 'Strong sell', color: '#c2402a' },
-]
+const TREND_SEGMENTS: { key: keyof RecommendationTrend & string; label: string; color: string }[] =
+  [
+    { key: 'strongBuy', label: 'Strong buy', color: '#1e7f4f' },
+    { key: 'buy', label: 'Buy', color: '#7cb342' },
+    { key: 'hold', label: 'Hold', color: '#f0c63c' },
+    { key: 'sell', label: 'Sell', color: '#e07b39' },
+    { key: 'strongSell', label: 'Strong sell', color: '#c2402a' },
+  ]
 
 function RecommendationsPanel({
   resp,
@@ -490,7 +429,13 @@ function RecommendationsPanel({
         <ResponsiveContainer width="100%" height={220}>
           <BarChart data={chartData}>
             <XAxis dataKey="month" tick={{ fontSize: 11 }} tickLine={false} axisLine={false} />
-            <YAxis allowDecimals={false} tick={{ fontSize: 11 }} tickLine={false} axisLine={false} width={32} />
+            <YAxis
+              allowDecimals={false}
+              tick={{ fontSize: 11 }}
+              tickLine={false}
+              axisLine={false}
+              width={32}
+            />
             <ChartTooltip
               cursor={{ fill: 'transparent' }}
               contentStyle={{
@@ -631,15 +576,32 @@ type CompareRowDef = {
 }
 
 const COMPARE_ROWS: CompareRowDef[] = [
-  { label: 'Price', best: 'none', value: (d) => d.snapshot?.quote?.current ?? null, fmt: (v) => money(v) },
+  {
+    label: 'Price',
+    best: 'none',
+    value: (d) => d.snapshot?.quote?.current ?? null,
+    fmt: (v) => money(v),
+  },
   {
     label: 'Market cap',
     best: 'none',
     value: (d) => d.snapshot?.profile?.marketCapMillions ?? null,
     fmt: (v) => humanMoney(v * 1_000_000),
   },
-  { label: 'P/E (TTM)', best: 'lowest', value: (d) => d.fundamentals?.metrics?.peTtm ?? null, fmt: num, sectorKey: 'pe' },
-  { label: 'P/S', best: 'lowest', value: (d) => d.fundamentals?.metrics?.ps ?? null, fmt: num, sectorKey: 'ps' },
+  {
+    label: 'P/E (TTM)',
+    best: 'lowest',
+    value: (d) => d.fundamentals?.metrics?.peTtm ?? null,
+    fmt: num,
+    sectorKey: 'pe',
+  },
+  {
+    label: 'P/S',
+    best: 'lowest',
+    value: (d) => d.fundamentals?.metrics?.ps ?? null,
+    fmt: num,
+    sectorKey: 'ps',
+  },
   {
     label: 'Revenue growth YoY',
     best: 'highest',
@@ -647,9 +609,27 @@ const COMPARE_ROWS: CompareRowDef[] = [
     fmt: pct1,
     sectorKey: 'revenueGrowthYoY',
   },
-  { label: 'Gross margin', best: 'highest', value: (d) => d.fundamentals?.metrics?.grossMargin ?? null, fmt: pct1, sectorKey: 'grossMargin' },
-  { label: 'Net margin', best: 'highest', value: (d) => d.fundamentals?.metrics?.netMargin ?? null, fmt: pct1, sectorKey: 'netMargin' },
-  { label: 'ROE', best: 'highest', value: (d) => d.fundamentals?.metrics?.roe ?? null, fmt: pct1, sectorKey: 'roe' },
+  {
+    label: 'Gross margin',
+    best: 'highest',
+    value: (d) => d.fundamentals?.metrics?.grossMargin ?? null,
+    fmt: pct1,
+    sectorKey: 'grossMargin',
+  },
+  {
+    label: 'Net margin',
+    best: 'highest',
+    value: (d) => d.fundamentals?.metrics?.netMargin ?? null,
+    fmt: pct1,
+    sectorKey: 'netMargin',
+  },
+  {
+    label: 'ROE',
+    best: 'highest',
+    value: (d) => d.fundamentals?.metrics?.roe ?? null,
+    fmt: pct1,
+    sectorKey: 'roe',
+  },
   { label: 'Beta', best: 'none', value: (d) => d.fundamentals?.metrics?.beta ?? null, fmt: num },
   {
     label: '% below 52-week high',
@@ -685,12 +665,19 @@ function CompareSection({
   onRemove: (ticker: string) => void
 }) {
   const results = useQueries({
-    queries: tickers.flatMap((t) => [snapshotQuery(t), fundamentalsQuery(t), recommendationsQuery(t)]),
+    queries: tickers.flatMap((t) => [
+      snapshotQuery(t),
+      fundamentalsQuery(t),
+      recommendationsQuery(t),
+    ]),
   })
   // optional pseudo-column: the first compared ticker's sector medians (all
   // compared tickers usually share a sector; the header names it to be safe)
   const [showMedian, setShowMedian] = useState(false)
-  const sectorCtx = useQuery({ ...sectorContextQuery(tickers[0] ?? ''), enabled: showMedian && tickers.length > 0 })
+  const sectorCtx = useQuery({
+    ...sectorContextQuery(tickers[0] ?? ''),
+    enabled: showMedian && tickers.length > 0,
+  })
   const medianByKey = new Map(
     (sectorCtx.data?.metrics ?? []).map((m) => [m.key, m.sectorMedian] as const),
   )

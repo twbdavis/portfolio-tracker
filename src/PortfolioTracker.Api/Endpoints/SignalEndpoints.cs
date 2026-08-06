@@ -3,6 +3,7 @@ using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Routing;
 using PortfolioTracker.Api.Services;
+using PortfolioTracker.Core.Research;
 using PortfolioTracker.Core.Sectors;
 
 namespace PortfolioTracker.Api.Endpoints;
@@ -59,6 +60,22 @@ public static class SignalEndpoints
             {
                 fired,
                 lastEvaluatedAt = svc.AppState.Get(SignalService.LastEvaluatedKey),
+            });
+        });
+
+        // outcome scoreboard: informational per-kind forward-return stats over
+        // matured outcomes; warehouse-only
+        api.MapGet("/signals/scoreboard", (CoreServices svc) =>
+        {
+            var rows = ScoreboardMath.Build(
+                svc.SignalHits.GetAll(includeDismissed: true),
+                svc.SignalOutcomes.GetAll(),
+                svc.Settings.ScoreboardDownWeighting);
+            return Results.Ok(new
+            {
+                rows,
+                downWeightingEnabled = svc.Settings.ScoreboardDownWeighting,
+                lastJobsRunAt = svc.AppState.Get(ResearchJobsService.LastRunKey),
             });
         });
     }

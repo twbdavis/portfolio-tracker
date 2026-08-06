@@ -47,8 +47,14 @@ function dashboard(rows: PositionRow[]): Dashboard {
       dividends: 0,
       realized: 0,
       ytdTaxRealized: 0,
+      ytdRealized: 0,
+      ytdWashAdjustment: 0,
+      ytdEstimatedTax: 0,
       accountTotal: 0,
       pricesAsOf: '2026-07-17T10:00:00-04:00',
+      quotesObservedAt: null,
+      quotesStale: false,
+      quotesViaFallback: false,
     },
   }
 }

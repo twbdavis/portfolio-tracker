@@ -1,7 +1,13 @@
 using PortfolioTracker.Core.Data;
 using PortfolioTracker.Core.Tax;
 
-var appData = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "PortfolioTracker");
+// `--dir <path>` — run against a copy of the data folder instead of the live
+// one (GetYearData upserts carryforward rows, so never point this at the real
+// DB while the app is open)
+var dirFlag = Array.IndexOf(args, "--dir");
+var appData = dirFlag >= 0 && args.Length > dirFlag + 1
+    ? args[dirFlag + 1]
+    : Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "PortfolioTracker");
 var db = new Database(Path.Combine(appData, "portfolio.db"));
 
 // `db-inspect warehouse` — sector-analysis warehouse coverage counts
@@ -50,10 +56,11 @@ var brackets = TaxBracketsFile.Load(Path.Combine(appData, "taxbrackets.json"));
 
 var year = DateTime.Now.Year;
 var d = tax.GetYearData(year, brackets);
-var afterTax = d.YearShortTerm + d.YearLongTerm - d.Estimate.Attributable;
+var economic = d.Events.Sum(e => e.View.Source.GainLoss);
+var taxable = d.YearShortTerm + d.YearLongTerm;
 Console.WriteLine($"Year {year}");
-Console.WriteLine($"  YearShortTerm       {d.YearShortTerm:F2}");
-Console.WriteLine($"  YearLongTerm        {d.YearLongTerm:F2}");
+Console.WriteLine($"  Realized (economic) {economic:F2}");
+Console.WriteLine($"  Taxable (adjusted)  {taxable:F2}  (wash add-back {taxable - economic:F2})");
 Console.WriteLine($"  Est. attributable   {d.Estimate.Attributable:F2}");
-Console.WriteLine($"  After tax           {afterTax:F2}");
+Console.WriteLine($"  After tax (kept)    {economic - d.Estimate.Attributable:F2}");
 Console.WriteLine($"  (old GetRealizedAdjusted: {tax.GetRealizedAdjusted(year):F2})");

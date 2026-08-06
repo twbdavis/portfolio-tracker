@@ -112,6 +112,7 @@ public class ResearchCacheTests : IDisposable
         public Task<List<EarningsQuarter>> GetEarningsAsync(string t, CancellationToken ct) => Task.FromResult(new List<EarningsQuarter>());
         public Task<DateOnly?> GetNextEarningsDateAsync(string t, CancellationToken ct) => Task.FromResult<DateOnly?>(null);
         public Task<List<NewsItem>> GetCompanyNewsAsync(string t, DateOnly f, DateOnly to, CancellationToken ct) => Task.FromResult(new List<NewsItem>());
+        public Task<List<string>> GetPeersAsync(string t, CancellationToken ct) => Task.FromResult(new List<string>());
     }
 
     [Fact]

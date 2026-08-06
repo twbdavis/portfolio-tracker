@@ -21,8 +21,8 @@ namespace PortfolioTracker.Api.Services;
 ///
 /// History fetches (Yahoo Finance) don't touch Finnhub, so they bypass both
 /// Finnhub gates and use a light politeness gate of their own.
-public class UniverseCrawler(CoreServices svc, SignalService signals, ILogger<UniverseCrawler> log)
-    : BackgroundService
+public class UniverseCrawler(CoreServices svc, SignalService signals, ResearchJobsService jobs,
+    ILogger<UniverseCrawler> log) : BackgroundService
 {
     private static readonly TimeSpan InteractiveCooldown = TimeSpan.FromSeconds(3);
     private static readonly TimeSpan SweepInterval = TimeSpan.FromMinutes(5);
@@ -137,6 +137,13 @@ public class UniverseCrawler(CoreServices svc, SignalService signals, ILogger<Un
             try { await signals.EvaluateAsync(ct); }
             catch (OperationCanceledException) { throw; }
             catch (Exception ex) { log.LogWarning(ex, "signal evaluation after crawl failed"); }
+
+            // nightly research jobs (portfolio fit, signal outcomes, weekly
+            // briefs) ride the same schedule; idempotent, so failure just
+            // defers to the next pass
+            try { await jobs.RunAsync(ct); }
+            catch (OperationCanceledException) { throw; }
+            catch (Exception ex) { log.LogWarning(ex, "research jobs after crawl failed"); }
             return true;
         }
         catch (PriceFetchException ex)
@@ -210,10 +217,64 @@ public class UniverseCrawler(CoreServices svc, SignalService signals, ILogger<Un
                         Ticker = item.Ticker, Date = b.Date, Close = b.Close, Source = CloseSource.Stooq,
                     }));
                 break;
+
+            case CrawlKind.Peers:
+                var peers = await svc.ResearchProvider.GetPeersAsync(item.Ticker, ct);
+                RecordDiscoveries(item.Ticker, peers, now);
+                break;
         }
         // null/empty results stamp too: an unknown symbol or Stooq coverage gap
         // must not be re-fetched until its TTL expires again
         svc.CrawlStamps.Stamp(item.Ticker, item.Kind, now);
+    }
+
+    /// New peer tickers land in the discovery inbox; auto-accept (opt-in)
+    /// routes them straight into the "Discovered" universe so the next pass
+    /// crawls them fully.
+    private void RecordDiscoveries(string sourceTicker, List<string> peers, DateTimeOffset now)
+    {
+        if (peers.Count == 0) return;
+        var known = svc.Universes.GetAllTickers().ToHashSet(StringComparer.OrdinalIgnoreCase);
+        known.UnionWith(PeerSeedTickers());
+        var accepted = new List<string>();
+        foreach (var peer in peers)
+        {
+            if (known.Contains(peer)) continue;
+            // existing rows (including Ignored) win — ignored never resurfaces
+            if (!svc.Discovered.InsertIfNew(peer, sourceTicker, now)) continue;
+            if (svc.Settings.AutoAcceptDiscoveries)
+            {
+                svc.Discovered.SetStatus(peer, DiscoveryStatus.Accepted);
+                accepted.Add(peer);
+            }
+        }
+        if (accepted.Count > 0)
+        {
+            var universe = svc.Universes.GetAll()
+                .FirstOrDefault(u => u.Name.Equals(DiscoveredUniverseName, StringComparison.OrdinalIgnoreCase));
+            var universeId = universe?.Id ?? svc.Universes.Insert(DiscoveredUniverseName, isSeeded: false);
+            svc.Universes.AddMembers(universeId, accepted);
+        }
+    }
+
+    public const string DiscoveredUniverseName = "Discovered";
+
+    /// PeerExpansion seeds: held, watchlisted, and active-signal tickers.
+    /// One hop only — discovered tickers never become seeds themselves unless
+    /// the user holds, watches, or gets a signal on them.
+    private HashSet<string> PeerSeedTickers()
+    {
+        var openPositions = svc.Lots.GetAllOpen().GroupBy(l => l.PositionId)
+            .Where(g => g.Sum(l => l.RemainingShares) != 0m)
+            .Select(g => g.Key).ToHashSet();
+        var seeds = svc.Positions.GetAll()
+            .Where(p => openPositions.Contains(p.Id)).Select(p => p.Ticker)
+            .Concat(svc.Watchlist.GetAll().Select(w => w.Ticker))
+            .Concat(svc.SignalHits.GetAll(includeDismissed: false)
+                .Where(h => h.SignalKind != SignalKinds.BreadthThrust)
+                .Select(h => h.Ticker))
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+        return seeds;
     }
 
     private List<CrawlWorkItem> BuildPlan(long? universeId)
@@ -242,8 +303,11 @@ public class UniverseCrawler(CoreServices svc, SignalService signals, ILogger<Un
                 latestCloses[t] = d;
 
         var nowUtc = DateTimeOffset.UtcNow;
+        // peer expansion only runs on full passes — a single-universe refresh
+        // is a scoped request, not a discovery sweep
+        var peerSeeds = universeId is null ? PeerSeedTickers() : null;
         return CrawlPlanner.Plan(tickers, svc.CrawlStamps.GetAll(), live, userClassified,
-            latestCloses, MarketHours.MostRecentCompletedTradingDay(nowUtc), nowUtc);
+            latestCloses, MarketHours.MostRecentCompletedTradingDay(nowUtc), nowUtc, peerSeeds);
     }
 
     private async Task WaitForInteractiveQuietAsync(CancellationToken ct)

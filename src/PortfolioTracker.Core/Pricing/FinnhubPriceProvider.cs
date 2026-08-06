@@ -10,6 +10,7 @@ public class FinnhubPriceProvider(HttpClient http, Func<string?> apiKey) : IPric
     {
         [JsonPropertyName("c")] public decimal Current { get; set; }
         [JsonPropertyName("pc")] public decimal PrevClose { get; set; }
+        [JsonPropertyName("t")] public long Timestamp { get; set; }   // unix seconds the price was observed
     }
 
     public async Task<PriceQuote?> GetQuoteAsync(string ticker, CancellationToken ct)
@@ -27,7 +28,8 @@ public class FinnhubPriceProvider(HttpClient http, Func<string?> apiKey) : IPric
                       ?? throw new PriceFetchException($"Empty Finnhub response for {ticker}.");
             if (dto.Current == 0m && dto.PrevClose == 0m) return null; // unknown symbol
             return new PriceQuote(ticker, dto.Current, DateTimeOffset.Now,
-                dto.PrevClose > 0m ? dto.PrevClose : null);
+                dto.PrevClose > 0m ? dto.PrevClose : null,
+                dto.Timestamp > 0 ? DateTimeOffset.FromUnixTimeSeconds(dto.Timestamp).ToLocalTime() : null);
         }
         catch (HttpRequestException ex) { throw new PriceFetchException($"Network error: {ex.Message}", ex); }
         catch (TaskCanceledException) when (!ct.IsCancellationRequested)

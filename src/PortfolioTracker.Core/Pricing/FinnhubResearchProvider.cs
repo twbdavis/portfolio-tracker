@@ -119,6 +119,9 @@ public class FinnhubResearchProvider(HttpClient http, Func<string?> apiKey) : IR
             Beta = Dec(m, "beta"),
             High52 = Dec(m, "52WeekHigh"),
             Low52 = Dec(m, "52WeekLow"),
+            DividendYield = Dec(m, "currentDividendYieldTTM", "dividendYieldIndicatedAnnual"),
+            DebtToEquity = Dec(m, "totalDebt/totalEquityQuarterly", "totalDebt/totalEquityAnnual"),
+            CurrentRatio = Dec(m, "currentRatioQuarterly", "currentRatioAnnual"),
         };
     }
 
@@ -197,8 +200,27 @@ public class FinnhubResearchProvider(HttpClient http, Func<string?> apiKey) : IR
                 Source = Str(e, "source") ?? "",
                 Headline = headline,
                 Url = url,
+                Summary = Str(e, "summary"),
             });
         }
         return items.OrderByDescending(n => n.PublishedAt).ToList();
+    }
+
+    public async Task<List<string>> GetPeersAsync(string ticker, CancellationToken ct)
+    {
+        using var doc = await GetAsync($"stock/peers?symbol={Uri.EscapeDataString(ticker)}", ct).ConfigureAwait(false);
+        var peers = new List<string>();
+        if (doc is null || doc.RootElement.ValueKind != JsonValueKind.Array) return peers;
+        foreach (var e in doc.RootElement.EnumerateArray())
+        {
+            if (e.ValueKind != JsonValueKind.String) continue;
+            var symbol = e.GetString()?.Trim().ToUpperInvariant();
+            // finnhub includes the query symbol itself in its peer list
+            if (string.IsNullOrEmpty(symbol)
+                || string.Equals(symbol, ticker.Trim().ToUpperInvariant(), StringComparison.OrdinalIgnoreCase))
+                continue;
+            peers.Add(symbol);
+        }
+        return peers.Distinct(StringComparer.OrdinalIgnoreCase).ToList();
     }
 }

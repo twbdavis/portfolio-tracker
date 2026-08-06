@@ -21,6 +21,7 @@ public static class PortfolioEndpoints
         api.MapTargetEndpoints();
         api.MapWatchlistEndpoints();
         api.MapResearchEndpoints();
+        api.MapResearchQueueEndpoints();
         api.MapUniverseEndpoints();
         api.MapCrawlerEndpoints();
         api.MapSectorEndpoints();

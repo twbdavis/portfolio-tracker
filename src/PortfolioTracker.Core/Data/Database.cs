@@ -226,9 +226,66 @@ public class Database
                 Kind INTEGER NOT NULL,
                 FetchedAt TEXT NOT NULL,
                 PRIMARY KEY (Ticker, Kind));
+            CREATE TABLE IF NOT EXISTS DiscoveredTicker (
+                Ticker TEXT PRIMARY KEY COLLATE NOCASE,
+                SourceTicker TEXT NOT NULL COLLATE NOCASE,
+                DiscoveredAt TEXT NOT NULL,
+                Status INTEGER NOT NULL DEFAULT 0);
+            CREATE TABLE IF NOT EXISTS PortfolioFit (
+                Ticker TEXT PRIMARY KEY COLLATE NOCASE,
+                AsOf TEXT NOT NULL,
+                Correlation TEXT NULL,
+                Observations INTEGER NOT NULL DEFAULT 0);
+            CREATE TABLE IF NOT EXISTS SignalOutcome (
+                SignalHitId INTEGER PRIMARY KEY REFERENCES SignalHit(Id),
+                Ticker TEXT NOT NULL COLLATE NOCASE,
+                SignalKind TEXT NOT NULL,
+                Sector TEXT NULL,
+                FireDate TEXT NOT NULL,
+                TickerCloseAtFire TEXT NULL,
+                SectorClosesJson TEXT NULL,
+                Return30 TEXT NULL, Excess30 TEXT NULL,
+                Return60 TEXT NULL, Excess60 TEXT NULL,
+                Return90 TEXT NULL, Excess90 TEXT NULL);
+            CREATE INDEX IF NOT EXISTS IX_SignalOutcome_Kind ON SignalOutcome(SignalKind);
+            CREATE TABLE IF NOT EXISTS ResearchBrief (
+                Id INTEGER PRIMARY KEY AUTOINCREMENT,
+                Ticker TEXT NOT NULL COLLATE NOCASE,
+                CreatedAt TEXT NOT NULL,
+                Model TEXT NOT NULL,
+                InputSnapshotJson TEXT NOT NULL,
+                BriefMarkdown TEXT NOT NULL,
+                TokensUsed INTEGER NOT NULL DEFAULT 0);
+            CREATE INDEX IF NOT EXISTS IX_ResearchBrief_Ticker ON ResearchBrief(Ticker);
+            CREATE TABLE IF NOT EXISTS BriefTrace (
+                Id INTEGER PRIMARY KEY AUTOINCREMENT,
+                BriefId INTEGER NULL REFERENCES ResearchBrief(Id),
+                Ticker TEXT NOT NULL COLLATE NOCASE,
+                SnapshotHash TEXT NOT NULL,
+                Section TEXT NOT NULL,
+                Stage TEXT NOT NULL,
+                UserPrompt TEXT NOT NULL,
+                RawResponse TEXT NOT NULL,
+                CleanedText TEXT NOT NULL,
+                ViolationsJson TEXT NOT NULL,
+                Passed INTEGER NOT NULL DEFAULT 0,
+                CreatedAt TEXT NOT NULL);
+            CREATE INDEX IF NOT EXISTS IX_BriefTrace_Snapshot ON BriefTrace(Ticker, SnapshotHash);
+            CREATE INDEX IF NOT EXISTS IX_BriefTrace_Brief ON BriefTrace(BriefId);
+            CREATE TABLE IF NOT EXISTS QueueSnooze (
+                Ticker TEXT PRIMARY KEY COLLATE NOCASE,
+                SnoozedUntil TEXT NOT NULL);
+            CREATE TABLE IF NOT EXISTS AiUsage (
+                Month TEXT PRIMARY KEY,
+                TokensUsed INTEGER NOT NULL DEFAULT 0);
             """;
         cmd.ExecuteNonQuery();
         AddColumnIfMissing(conn, "PriceCache", "PrevClose", "TEXT NULL");
+        AddColumnIfMissing(conn, "PriceCache", "ObservedAt", "TEXT NULL");
+        AddColumnIfMissing(conn, "PriceCache", "Source", "TEXT NULL");
+        // BriefAgent pipeline: grounding-review flag + idempotency hash
+        AddColumnIfMissing(conn, "ResearchBrief", "NeedsReview", "INTEGER NOT NULL DEFAULT 0");
+        AddColumnIfMissing(conn, "ResearchBrief", "InputSnapshotHash", "TEXT NULL");
     }
 
     /// Forward-only, automatic, single transaction. Pre-account rows cannot

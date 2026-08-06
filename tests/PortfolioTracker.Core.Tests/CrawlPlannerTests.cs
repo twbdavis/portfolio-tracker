@@ -20,12 +20,14 @@ public class CrawlPlannerTests
             latest ?? new(), LastSession, Now);
 
     [Fact]
-    public void Unstamped_ticker_gets_all_five_kinds()
+    public void Unstamped_ticker_gets_all_five_universe_kinds()
     {
+        // Peers is deliberately absent: it plans from peer seeds (held,
+        // watchlist, active signals), not from universe membership
         var plan = Plan(new[] { "NVDA" });
         Assert.Equal(5, plan.Count);
         Assert.All(plan, i => Assert.Equal("NVDA", i.Ticker));
-        Assert.Equal(Enum.GetValues<CrawlKind>().OrderBy(k => k),
+        Assert.Equal(Enum.GetValues<CrawlKind>().Where(k => k != CrawlKind.Peers).OrderBy(k => k),
             plan.Select(i => i.Kind).OrderBy(k => k));
     }
 

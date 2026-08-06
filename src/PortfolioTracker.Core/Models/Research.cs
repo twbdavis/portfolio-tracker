@@ -37,6 +37,9 @@ public class FundamentalMetrics
     public decimal? Beta { get; set; }
     public decimal? High52 { get; set; }
     public decimal? Low52 { get; set; }
+    public decimal? DividendYield { get; set; }
+    public decimal? DebtToEquity { get; set; }
+    public decimal? CurrentRatio { get; set; }
 }
 
 public class RecommendationTrend
@@ -68,4 +71,5 @@ public class NewsItem
     public string Source { get; set; } = "";
     public string Headline { get; set; } = "";
     public string Url { get; set; } = "";
+    public string? Summary { get; set; }
 }

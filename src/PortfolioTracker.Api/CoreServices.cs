@@ -3,6 +3,7 @@ using PortfolioTracker.Core.Data;
 using PortfolioTracker.Core.Import;
 using PortfolioTracker.Core.Portfolio;
 using PortfolioTracker.Core.Pricing;
+using PortfolioTracker.Core.Research;
 using PortfolioTracker.Core.Tax;
 
 namespace PortfolioTracker.Api;
@@ -33,7 +34,34 @@ public class CoreServices
     public required SignalHitRepository SignalHits { get; init; }
     public required AppStateRepository AppState { get; init; }
     public required CrawlStampRepository CrawlStamps { get; init; }
+    public required DiscoveredTickerRepository Discovered { get; init; }
+    public required PortfolioFitRepository PortfolioFit { get; init; }
+    public required SignalOutcomeRepository SignalOutcomes { get; init; }
+    public required ResearchBriefRepository Briefs { get; init; }
+    public required QueueSnoozeRepository QueueSnoozes { get; init; }
+    public required AiUsageRepository AiUsage { get; init; }
+    public required BriefTraceRepository BriefTraces { get; init; }
+    /// Anthropic Messages client for AI research briefs; metered separately
+    /// from the Finnhub budget. Kept behind the IBriefModelProvider seam —
+    /// AI_VISION_PROVIDER selects it or the local OpenWebUI server.
+    public required AnthropicClient Anthropic { get; init; }
+    public required OpenWebUiBriefProvider OpenWebUi { get; init; }
+    public required BriefPromptTemplates BriefPrompts { get; init; }
+
+    /// The active brief backend per AI_VISION_PROVIDER; resolved per call so
+    /// a settings change applies without restart. Null when disabled.
+    public IBriefModelProvider? ResolveBriefProvider() => Settings.AiProvider switch
+    {
+        BriefProviderKinds.OpenWebUi => OpenWebUi,
+        BriefProviderKinds.Anthropic => new AnthropicBriefProvider(Anthropic,
+            () => string.IsNullOrWhiteSpace(Settings.AnthropicModel)
+                ? AnthropicClient.DefaultModel : Settings.AnthropicModel),
+        _ => null,
+    };
     public required IHistoryProvider History { get; init; }
+    /// Yahoo assetProfile business summaries for the brief's company header —
+    /// the only keyless source of a real "what the company does" paragraph.
+    public required ICompanyDescriptionProvider CompanyDescriptions { get; init; }
     /// Raw providers for the crawler: it manages its own freshness stamps, so
     /// it bypasses the ResearchService cache layer.
     public required IResearchDataProvider ResearchProvider { get; init; }
@@ -59,7 +87,11 @@ public class CoreServices
         // budget (60/min). The burst lets a whole refresh pass fan out at once;
         // the 1.1s refill keeps the sustained rate under the cap.
         var gate = new RateGate(TimeSpan.FromMilliseconds(1100), burst: 50);
-        var priceProvider = new FinnhubPriceProvider(http, () => settings.FinnhubApiKey);
+        // Finnhub primary; when its feed freezes mid-session (same price and
+        // observation on every poll) quotes fail over to Yahoo per ticker
+        var priceProvider = new StaleFeedFallbackPriceProvider(
+            new FinnhubPriceProvider(http, () => settings.FinnhubApiKey),
+            new YahooQuoteProvider(http));
         var researchProvider = new FinnhubResearchProvider(http, () => settings.FinnhubApiKey);
         var services = new CoreServices
         {
@@ -85,7 +117,27 @@ public class CoreServices
             SignalHits = new SignalHitRepository(db),
             AppState = new AppStateRepository(db),
             CrawlStamps = new CrawlStampRepository(db),
+            Discovered = new DiscoveredTickerRepository(db),
+            PortfolioFit = new PortfolioFitRepository(db),
+            SignalOutcomes = new SignalOutcomeRepository(db),
+            Briefs = new ResearchBriefRepository(db),
+            QueueSnoozes = new QueueSnoozeRepository(db),
+            AiUsage = new AiUsageRepository(db),
+            BriefTraces = new BriefTraceRepository(db),
+            // separate client: brief generations legitimately run far past the
+            // 15s Finnhub timeout
+            Anthropic = new AnthropicClient(new HttpClient { Timeout = TimeSpan.FromSeconds(120) },
+                () => settings.AnthropicApiKey),
+            // the provider's per-call timeout (from settings, hot-read) is the
+            // sole authority; the HttpClient must never pre-empt it, so it has
+            // no timeout of its own
+            OpenWebUi = new OpenWebUiBriefProvider(new HttpClient { Timeout = Timeout.InfiniteTimeSpan },
+                () => (settings.OpenWebUiBaseUrl, settings.OpenWebUiApiKey, settings.OpenWebUiModel),
+                () => TimeSpan.FromSeconds(Math.Clamp(settings.OpenWebUiTimeoutSeconds, 10, 3600)),
+                () => settings.OpenWebUiDisableThinking),
+            BriefPrompts = new BriefPromptTemplates(appDataDir),
             History = new YahooHistoryProvider(http),
+            CompanyDescriptions = new YahooProfileProvider(),
             ResearchProvider = researchProvider,
             PriceProvider = priceProvider,
             FinnhubGate = gate,
