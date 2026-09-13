@@ -5,3 +5,11 @@ obj/
 appsettings.json
 *.db
 publish*/
+
+# Local build products and private data
+**/bin/
+**/obj/
+*.user
+artifacts/
+TestResults/
+src/PortfolioTracker.Api/wwwroot/

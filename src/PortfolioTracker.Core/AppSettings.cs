@@ -73,8 +73,12 @@ public class AppSettings
     /// applied weight and the reason whenever this changes a row.
     public bool ScoreboardDownWeighting { get; set; }
 
-    public static string AppDataDir =>
-        Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "PortfolioTracker");
+    public static string AppDataDir => ResolveDataDirectory(Environment.GetEnvironmentVariable("PT_DATA_DIR"));
+
+    public static string ResolveDataDirectory(string? overridePath) =>
+        string.IsNullOrWhiteSpace(overridePath)
+            ? Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "PortfolioTracker")
+            : Path.GetFullPath(overridePath);
 
     private string _dir = AppDataDir;
 
